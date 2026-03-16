@@ -1,0 +1,28 @@
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) 
+{
+    if (htim->Instance == TIM6) 
+		{
+				
+        /* 1ms任务（每个中断周期执行） */
+        task1ms_flag = true;			
+	
+        if (++task200ms_cnt >= 200) 
+				{
+						trans_flag = 1;					
+            task200ms_cnt = 0;
+            task200ms_flag = true;
+					
+        }
+        /* 1s任务（每1000ms执行一次） */
+        if (++task1s_cnt >= 1000) 
+				{
+						direction_lock_flag = true; // 1秒后重置标志位，允许再次检测方向
+            task1s_cnt = 0;
+            task1s_flag = true;
+					
+        }
+				
+    }
+}
+
+void key_read

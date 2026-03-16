@@ -1,0 +1,80 @@
+# =========================
+# Workspace / IDE metadata
+# =========================
+.metadata/
+**/.settings/
+.vscode/
+
+# =========================
+# Build output directories
+# =========================
+**/Debug/
+**/Release/
+**/build/
+
+# =========================
+# Temporary / cache files
+# =========================
+*.log
+*.bak
+*.tmp
+*.temp
+*.cache
+
+# =========================
+# Compiler / linker outputs
+# =========================
+*.o
+*.d
+*.su
+*.elf
+*.axf
+*.out
+*.bin
+*.hex
+*.map
+*.lst
+*.srec
+*.mot
+
+# =========================
+# Archive / packaged files
+# =========================
+*.rar
+*.zip
+*.7z
+*.tar
+*.gz
+
+# =========================
+# Office / temporary docs
+# =========================
+~$*.docx
+~$*.doc
+~$*.xlsx
+~$*.pptx
+
+# =========================
+# OS generated files
+# =========================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# =========================
+# Python cache
+# =========================
+__pycache__/
+*.pyc
+
+# =========================
+# Keep project-important files
+# =========================
+!**/.project
+!**/.cproject
+!**/.api_xml
+!**/.secure_azone
+!**/.secure_xml
+!**/configuration.xml
+!**/*.launch
+!**/ra_cfg.txt
