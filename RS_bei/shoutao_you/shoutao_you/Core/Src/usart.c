@@ -21,6 +21,7 @@
 #include "usart.h"
 
 /* USER CODE BEGIN 0 */
+#include "trans.h"
 
 /* USER CODE END 0 */
 
@@ -387,14 +388,26 @@ void HAL_UART_MspDeInit(UART_HandleTypeDef* uartHandle)
 
 int fputc(int ch, FILE *f)
 {
+#if GLOVE_MIGRATION_PROTOCOL_ENABLE
+  /*
+   * 迁移模式下，huart6 专门留给 STM32 -> RA6M5 的固定特征帧。
+   * 为了避免 printf 文本污染二进制流，调试输出改走 UART4。
+   */
+  HAL_UART_Transmit(&huart4, (uint8_t *)&ch, 1, 0xffff);
+#else
   HAL_UART_Transmit(&huart6, (uint8_t *)&ch, 1, 0xffff);
+#endif
   return ch;
 }
 
 int fgetc(FILE *f)
 {
   uint8_t ch = 0;
+#if GLOVE_MIGRATION_PROTOCOL_ENABLE
+  HAL_UART_Receive(&huart4, &ch, 1, 0xffff);
+#else
   HAL_UART_Receive(&huart6, &ch, 1, 0xffff);
+#endif
   return ch;
 }
 /* USER CODE END 1 */

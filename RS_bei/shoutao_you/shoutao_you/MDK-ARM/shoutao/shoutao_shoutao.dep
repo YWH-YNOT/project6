@@ -1,7 +1,7 @@
 Dependencies for Project 'shoutao', Target 'shoutao': (DO NOT MODIFY !)
 CompilerVersion: 6190000::V6.19::ARMCLANG
 F (startup_stm32f407xx.s)(0x695E75EB)(--target=arm-arm-none-eabi -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard -masm=auto  -Wa,armasm,--diag_suppress=A1950W -c-gdwarf-4 -Wa,armasm,--pd,"__MICROLIB SETA 1"-I./RTE/_shoutao-IC:/Users/a2248/AppData/Local/Arm/Packs/ARM/CMSIS/5.9.0/CMSIS/Core/Include-IC:/Users/a2248/AppData/Local/Arm/Packs/Keil/STM32F4xx_DFP/2.16.0/Drivers/CMSIS/Device/ST/STM32F4xx/Include-Wa,armasm,--pd,"__UVISION_VERSION SETA 538" -Wa,armasm,--pd,"_RTE_ SETA 1" -Wa,armasm,--pd,"STM32F407xx SETA 1" -Wa,armasm,--pd,"_RTE_ SETA 1"-o shoutao/startup_stm32f407xx.o)
-F (../Core/Src/main.c)(0x69B1751F)(-xc -std=c99 --target=arm-arm-none-eabi -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard -c-fno-rtti -funsigned-char -fshort-enums -fshort-wchar-D__MICROLIB -gdwarf-4 -O3 -ffunction-sections -Wno-packed -Wno-missing-variable-declarations -Wno-missing-prototypes -Wno-missing-noreturn -Wno-sign-conversion -Wno-nonportable-include-path -Wno-reserved-id-macro -Wno-unused-macros -Wno-documentation-unknown-command -Wno-documentation -Wno-license-management -Wno-parentheses-equality -Wno-reserved-identifier -I ../Core/Inc -I ../Drivers/STM32F4xx_HAL_Driver/Inc -I ../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy -I ../Drivers/CMSIS/Device/ST/STM32F4xx/Include -I ../Drivers/CMSIS/Include -I ./HARDWARE-I./RTE/_shoutao-IC:/Users/a2248/AppData/Local/Arm/Packs/ARM/CMSIS/5.9.0/CMSIS/Core/Include-IC:/Users/a2248/AppData/Local/Arm/Packs/Keil/STM32F4xx_DFP/2.16.0/Drivers/CMSIS/Device/ST/STM32F4xx/Include-D__UVISION_VERSION="538" -D_RTE_ -DSTM32F407xx -D_RTE_ -DUSE_HAL_DRIVER -DSTM32F407xx-o shoutao/main.o -MD)
+F (../Core/Src/main.c)(0x69B900AD)(-xc -std=c99 --target=arm-arm-none-eabi -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard -c-fno-rtti -funsigned-char -fshort-enums -fshort-wchar-D__MICROLIB -gdwarf-4 -O3 -ffunction-sections -Wno-packed -Wno-missing-variable-declarations -Wno-missing-prototypes -Wno-missing-noreturn -Wno-sign-conversion -Wno-nonportable-include-path -Wno-reserved-id-macro -Wno-unused-macros -Wno-documentation-unknown-command -Wno-documentation -Wno-license-management -Wno-parentheses-equality -Wno-reserved-identifier -I ../Core/Inc -I ../Drivers/STM32F4xx_HAL_Driver/Inc -I ../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy -I ../Drivers/CMSIS/Device/ST/STM32F4xx/Include -I ../Drivers/CMSIS/Include -I ./HARDWARE-I./RTE/_shoutao-IC:/Users/a2248/AppData/Local/Arm/Packs/ARM/CMSIS/5.9.0/CMSIS/Core/Include-IC:/Users/a2248/AppData/Local/Arm/Packs/Keil/STM32F4xx_DFP/2.16.0/Drivers/CMSIS/Device/ST/STM32F4xx/Include-D__UVISION_VERSION="538" -D_RTE_ -DSTM32F407xx -D_RTE_ -DUSE_HAL_DRIVER -DSTM32F407xx-o shoutao/main.o -MD)
 I (..\Core\Inc\main.h)(0x691EA144)
 I (..\Drivers\STM32F4xx_HAL_Driver\Inc\stm32f4xx_hal.h)(0x68C2D737)
 I (..\Core\Inc\stm32f4xx_hal_conf.h)(0x68D287AA)
@@ -55,7 +55,7 @@ I (HARDWARE\command.h)(0x68D16FB1)
 I (HARDWARE\JY901S.h)(0x68D40C5B)
 I (HARDWARE\BSP_IIC.h)(0x68D33FB3)
 I (HARDWARE\mpu6050.h)(0x69455807)
-I (HARDWARE\trans.h)(0x692148D4)
+I (HARDWARE\trans.h)(0x69B90038)
 I (HARDWARE\control.h)(0x69A7BE8A)
 F (../Core/Src/gpio.c)(0x68D8D6A3)(-xc -std=c99 --target=arm-arm-none-eabi -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard -c-fno-rtti -funsigned-char -fshort-enums -fshort-wchar-D__MICROLIB -gdwarf-4 -O3 -ffunction-sections -Wno-packed -Wno-missing-variable-declarations -Wno-missing-prototypes -Wno-missing-noreturn -Wno-sign-conversion -Wno-nonportable-include-path -Wno-reserved-id-macro -Wno-unused-macros -Wno-documentation-unknown-command -Wno-documentation -Wno-license-management -Wno-parentheses-equality -Wno-reserved-identifier -I ../Core/Inc -I ../Drivers/STM32F4xx_HAL_Driver/Inc -I ../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy -I ../Drivers/CMSIS/Device/ST/STM32F4xx/Include -I ../Drivers/CMSIS/Include -I ./HARDWARE-I./RTE/_shoutao-IC:/Users/a2248/AppData/Local/Arm/Packs/ARM/CMSIS/5.9.0/CMSIS/Core/Include-IC:/Users/a2248/AppData/Local/Arm/Packs/Keil/STM32F4xx_DFP/2.16.0/Drivers/CMSIS/Device/ST/STM32F4xx/Include-D__UVISION_VERSION="538" -D_RTE_ -DSTM32F407xx -D_RTE_ -DUSE_HAL_DRIVER -DSTM32F407xx-o shoutao/gpio.o -MD)
 I (..\Core\Inc\gpio.h)(0x68D13CCC)
@@ -247,7 +247,7 @@ I (..\Drivers\STM32F4xx_HAL_Driver\Inc\stm32f4xx_hal_pwr_ex.h)(0x68C2D737)
 I (..\Drivers\STM32F4xx_HAL_Driver\Inc\stm32f4xx_hal_tim.h)(0x68C2D737)
 I (..\Drivers\STM32F4xx_HAL_Driver\Inc\stm32f4xx_hal_tim_ex.h)(0x68C2D737)
 I (..\Drivers\STM32F4xx_HAL_Driver\Inc\stm32f4xx_hal_uart.h)(0x68C2D737)
-F (../Core/Src/usart.c)(0x695E75EA)(-xc -std=c99 --target=arm-arm-none-eabi -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard -c-fno-rtti -funsigned-char -fshort-enums -fshort-wchar-D__MICROLIB -gdwarf-4 -O3 -ffunction-sections -Wno-packed -Wno-missing-variable-declarations -Wno-missing-prototypes -Wno-missing-noreturn -Wno-sign-conversion -Wno-nonportable-include-path -Wno-reserved-id-macro -Wno-unused-macros -Wno-documentation-unknown-command -Wno-documentation -Wno-license-management -Wno-parentheses-equality -Wno-reserved-identifier -I ../Core/Inc -I ../Drivers/STM32F4xx_HAL_Driver/Inc -I ../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy -I ../Drivers/CMSIS/Device/ST/STM32F4xx/Include -I ../Drivers/CMSIS/Include -I ./HARDWARE-I./RTE/_shoutao-IC:/Users/a2248/AppData/Local/Arm/Packs/ARM/CMSIS/5.9.0/CMSIS/Core/Include-IC:/Users/a2248/AppData/Local/Arm/Packs/Keil/STM32F4xx_DFP/2.16.0/Drivers/CMSIS/Device/ST/STM32F4xx/Include-D__UVISION_VERSION="538" -D_RTE_ -DSTM32F407xx -D_RTE_ -DUSE_HAL_DRIVER -DSTM32F407xx-o shoutao/usart.o -MD)
+F (../Core/Src/usart.c)(0x69B900CE)(-xc -std=c99 --target=arm-arm-none-eabi -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard -c-fno-rtti -funsigned-char -fshort-enums -fshort-wchar-D__MICROLIB -gdwarf-4 -O3 -ffunction-sections -Wno-packed -Wno-missing-variable-declarations -Wno-missing-prototypes -Wno-missing-noreturn -Wno-sign-conversion -Wno-nonportable-include-path -Wno-reserved-id-macro -Wno-unused-macros -Wno-documentation-unknown-command -Wno-documentation -Wno-license-management -Wno-parentheses-equality -Wno-reserved-identifier -I ../Core/Inc -I ../Drivers/STM32F4xx_HAL_Driver/Inc -I ../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy -I ../Drivers/CMSIS/Device/ST/STM32F4xx/Include -I ../Drivers/CMSIS/Include -I ./HARDWARE-I./RTE/_shoutao-IC:/Users/a2248/AppData/Local/Arm/Packs/ARM/CMSIS/5.9.0/CMSIS/Core/Include-IC:/Users/a2248/AppData/Local/Arm/Packs/Keil/STM32F4xx_DFP/2.16.0/Drivers/CMSIS/Device/ST/STM32F4xx/Include-D__UVISION_VERSION="538" -D_RTE_ -DSTM32F407xx -D_RTE_ -DUSE_HAL_DRIVER -DSTM32F407xx-o shoutao/usart.o -MD)
 I (..\Core\Inc\usart.h)(0x68D13CCD)
 I (..\Core\Inc\main.h)(0x691EA144)
 I (..\Drivers\STM32F4xx_HAL_Driver\Inc\stm32f4xx_hal.h)(0x68C2D737)
@@ -285,7 +285,21 @@ I (..\Drivers\STM32F4xx_HAL_Driver\Inc\stm32f4xx_hal_pwr_ex.h)(0x68C2D737)
 I (..\Drivers\STM32F4xx_HAL_Driver\Inc\stm32f4xx_hal_tim.h)(0x68C2D737)
 I (..\Drivers\STM32F4xx_HAL_Driver\Inc\stm32f4xx_hal_tim_ex.h)(0x68C2D737)
 I (..\Drivers\STM32F4xx_HAL_Driver\Inc\stm32f4xx_hal_uart.h)(0x68C2D737)
+I (HARDWARE\trans.h)(0x69B90038)
+I (HARDWARE\headfile.h)(0x691E6EAF)
+I (C:\Keil_v5\ARM\ARMCLANG\include\math.h)(0x63884908)
+I (C:\Keil_v5\ARM\ARMCLANG\include\string.h)(0x63884908)
+I (C:\Keil_v5\ARM\ARMCLANG\include\stdlib.h)(0x63884908)
 I (C:\Keil_v5\ARM\ARMCLANG\include\stdio.h)(0x63884908)
+I (C:\Keil_v5\ARM\ARMCLANG\include\stdbool.h)(0x63884908)
+I (..\Core\Inc\i2c.h)(0x68D2B62A)
+I (..\Core\Inc\gpio.h)(0x68D13CCC)
+I (HARDWARE\my_nvic.h)(0x68D8D8BE)
+I (HARDWARE\command.h)(0x68D16FB1)
+I (HARDWARE\JY901S.h)(0x68D40C5B)
+I (HARDWARE\BSP_IIC.h)(0x68D33FB3)
+I (HARDWARE\mpu6050.h)(0x69455807)
+I (HARDWARE\control.h)(0x69A7BE8A)
 F (../Core/Src/stm32f4xx_it.c)(0x695E75EA)(-xc -std=c99 --target=arm-arm-none-eabi -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard -c-fno-rtti -funsigned-char -fshort-enums -fshort-wchar-D__MICROLIB -gdwarf-4 -O3 -ffunction-sections -Wno-packed -Wno-missing-variable-declarations -Wno-missing-prototypes -Wno-missing-noreturn -Wno-sign-conversion -Wno-nonportable-include-path -Wno-reserved-id-macro -Wno-unused-macros -Wno-documentation-unknown-command -Wno-documentation -Wno-license-management -Wno-parentheses-equality -Wno-reserved-identifier -I ../Core/Inc -I ../Drivers/STM32F4xx_HAL_Driver/Inc -I ../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy -I ../Drivers/CMSIS/Device/ST/STM32F4xx/Include -I ../Drivers/CMSIS/Include -I ./HARDWARE-I./RTE/_shoutao-IC:/Users/a2248/AppData/Local/Arm/Packs/ARM/CMSIS/5.9.0/CMSIS/Core/Include-IC:/Users/a2248/AppData/Local/Arm/Packs/Keil/STM32F4xx_DFP/2.16.0/Drivers/CMSIS/Device/ST/STM32F4xx/Include-D__UVISION_VERSION="538" -D_RTE_ -DSTM32F407xx -D_RTE_ -DUSE_HAL_DRIVER -DSTM32F407xx-o shoutao/stm32f4xx_it.o -MD)
 I (..\Core\Inc\main.h)(0x691EA144)
 I (..\Drivers\STM32F4xx_HAL_Driver\Inc\stm32f4xx_hal.h)(0x68C2D737)
@@ -1118,7 +1132,7 @@ I (..\Drivers\STM32F4xx_HAL_Driver\Inc\stm32f4xx_hal_pwr_ex.h)(0x68C2D737)
 I (..\Drivers\STM32F4xx_HAL_Driver\Inc\stm32f4xx_hal_tim.h)(0x68C2D737)
 I (..\Drivers\STM32F4xx_HAL_Driver\Inc\stm32f4xx_hal_tim_ex.h)(0x68C2D737)
 I (..\Drivers\STM32F4xx_HAL_Driver\Inc\stm32f4xx_hal_uart.h)(0x68C2D737)
-F (.\HARDWARE\my_nvic.c)(0x69B17131)(-xc -std=c99 --target=arm-arm-none-eabi -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard -c-fno-rtti -funsigned-char -fshort-enums -fshort-wchar-D__MICROLIB -gdwarf-4 -O3 -ffunction-sections -Wno-packed -Wno-missing-variable-declarations -Wno-missing-prototypes -Wno-missing-noreturn -Wno-sign-conversion -Wno-nonportable-include-path -Wno-reserved-id-macro -Wno-unused-macros -Wno-documentation-unknown-command -Wno-documentation -Wno-license-management -Wno-parentheses-equality -Wno-reserved-identifier -I ../Core/Inc -I ../Drivers/STM32F4xx_HAL_Driver/Inc -I ../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy -I ../Drivers/CMSIS/Device/ST/STM32F4xx/Include -I ../Drivers/CMSIS/Include -I ./HARDWARE-I./RTE/_shoutao-IC:/Users/a2248/AppData/Local/Arm/Packs/ARM/CMSIS/5.9.0/CMSIS/Core/Include-IC:/Users/a2248/AppData/Local/Arm/Packs/Keil/STM32F4xx_DFP/2.16.0/Drivers/CMSIS/Device/ST/STM32F4xx/Include-D__UVISION_VERSION="538" -D_RTE_ -DSTM32F407xx -D_RTE_ -DUSE_HAL_DRIVER -DSTM32F407xx-o shoutao/my_nvic.o -MD)
+F (.\HARDWARE\my_nvic.c)(0x69B900C5)(-xc -std=c99 --target=arm-arm-none-eabi -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard -c-fno-rtti -funsigned-char -fshort-enums -fshort-wchar-D__MICROLIB -gdwarf-4 -O3 -ffunction-sections -Wno-packed -Wno-missing-variable-declarations -Wno-missing-prototypes -Wno-missing-noreturn -Wno-sign-conversion -Wno-nonportable-include-path -Wno-reserved-id-macro -Wno-unused-macros -Wno-documentation-unknown-command -Wno-documentation -Wno-license-management -Wno-parentheses-equality -Wno-reserved-identifier -I ../Core/Inc -I ../Drivers/STM32F4xx_HAL_Driver/Inc -I ../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy -I ../Drivers/CMSIS/Device/ST/STM32F4xx/Include -I ../Drivers/CMSIS/Include -I ./HARDWARE-I./RTE/_shoutao-IC:/Users/a2248/AppData/Local/Arm/Packs/ARM/CMSIS/5.9.0/CMSIS/Core/Include-IC:/Users/a2248/AppData/Local/Arm/Packs/Keil/STM32F4xx_DFP/2.16.0/Drivers/CMSIS/Device/ST/STM32F4xx/Include-D__UVISION_VERSION="538" -D_RTE_ -DSTM32F407xx -D_RTE_ -DUSE_HAL_DRIVER -DSTM32F407xx-o shoutao/my_nvic.o -MD)
 I (HARDWARE\headfile.h)(0x691E6EAF)
 I (C:\Keil_v5\ARM\ARMCLANG\include\math.h)(0x63884908)
 I (C:\Keil_v5\ARM\ARMCLANG\include\string.h)(0x63884908)
@@ -1169,7 +1183,7 @@ I (HARDWARE\command.h)(0x68D16FB1)
 I (HARDWARE\JY901S.h)(0x68D40C5B)
 I (HARDWARE\BSP_IIC.h)(0x68D33FB3)
 I (HARDWARE\mpu6050.h)(0x69455807)
-I (HARDWARE\trans.h)(0x692148D4)
+I (HARDWARE\trans.h)(0x69B90038)
 I (HARDWARE\control.h)(0x69A7BE8A)
 F (.\HARDWARE\my_nvic.h)(0x68D8D8BE)()
 F (.\HARDWARE\headfile.h)(0x691E6EAF)()
@@ -1224,7 +1238,7 @@ I (HARDWARE\my_nvic.h)(0x68D8D8BE)
 I (HARDWARE\JY901S.h)(0x68D40C5B)
 I (HARDWARE\BSP_IIC.h)(0x68D33FB3)
 I (HARDWARE\mpu6050.h)(0x69455807)
-I (HARDWARE\trans.h)(0x692148D4)
+I (HARDWARE\trans.h)(0x69B90038)
 I (HARDWARE\control.h)(0x69A7BE8A)
 F (.\HARDWARE\command.h)(0x68D16FB1)()
 F (.\HARDWARE\JY901S.c)(0x68D40C33)(-xc -std=c99 --target=arm-arm-none-eabi -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard -c-fno-rtti -funsigned-char -fshort-enums -fshort-wchar-D__MICROLIB -gdwarf-4 -O3 -ffunction-sections -Wno-packed -Wno-missing-variable-declarations -Wno-missing-prototypes -Wno-missing-noreturn -Wno-sign-conversion -Wno-nonportable-include-path -Wno-reserved-id-macro -Wno-unused-macros -Wno-documentation-unknown-command -Wno-documentation -Wno-license-management -Wno-parentheses-equality -Wno-reserved-identifier -I ../Core/Inc -I ../Drivers/STM32F4xx_HAL_Driver/Inc -I ../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy -I ../Drivers/CMSIS/Device/ST/STM32F4xx/Include -I ../Drivers/CMSIS/Include -I ./HARDWARE-I./RTE/_shoutao-IC:/Users/a2248/AppData/Local/Arm/Packs/ARM/CMSIS/5.9.0/CMSIS/Core/Include-IC:/Users/a2248/AppData/Local/Arm/Packs/Keil/STM32F4xx_DFP/2.16.0/Drivers/CMSIS/Device/ST/STM32F4xx/Include-D__UVISION_VERSION="538" -D_RTE_ -DSTM32F407xx -D_RTE_ -DUSE_HAL_DRIVER -DSTM32F407xx-o shoutao/jy901s.o -MD)
@@ -1278,7 +1292,7 @@ I (HARDWARE\my_nvic.h)(0x68D8D8BE)
 I (HARDWARE\command.h)(0x68D16FB1)
 I (HARDWARE\BSP_IIC.h)(0x68D33FB3)
 I (HARDWARE\mpu6050.h)(0x69455807)
-I (HARDWARE\trans.h)(0x692148D4)
+I (HARDWARE\trans.h)(0x69B90038)
 I (HARDWARE\control.h)(0x69A7BE8A)
 F (.\HARDWARE\JY901S.h)(0x68D40C5B)()
 F (.\HARDWARE\BSP_IIC.c)(0x68D33FB3)(-xc -std=c99 --target=arm-arm-none-eabi -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard -c-fno-rtti -funsigned-char -fshort-enums -fshort-wchar-D__MICROLIB -gdwarf-4 -O3 -ffunction-sections -Wno-packed -Wno-missing-variable-declarations -Wno-missing-prototypes -Wno-missing-noreturn -Wno-sign-conversion -Wno-nonportable-include-path -Wno-reserved-id-macro -Wno-unused-macros -Wno-documentation-unknown-command -Wno-documentation -Wno-license-management -Wno-parentheses-equality -Wno-reserved-identifier -I ../Core/Inc -I ../Drivers/STM32F4xx_HAL_Driver/Inc -I ../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy -I ../Drivers/CMSIS/Device/ST/STM32F4xx/Include -I ../Drivers/CMSIS/Include -I ./HARDWARE-I./RTE/_shoutao-IC:/Users/a2248/AppData/Local/Arm/Packs/ARM/CMSIS/5.9.0/CMSIS/Core/Include-IC:/Users/a2248/AppData/Local/Arm/Packs/Keil/STM32F4xx_DFP/2.16.0/Drivers/CMSIS/Device/ST/STM32F4xx/Include-D__UVISION_VERSION="538" -D_RTE_ -DSTM32F407xx -D_RTE_ -DUSE_HAL_DRIVER -DSTM32F407xx-o shoutao/bsp_iic.o -MD)
@@ -1332,7 +1346,7 @@ I (HARDWARE\my_nvic.h)(0x68D8D8BE)
 I (HARDWARE\command.h)(0x68D16FB1)
 I (HARDWARE\JY901S.h)(0x68D40C5B)
 I (HARDWARE\mpu6050.h)(0x69455807)
-I (HARDWARE\trans.h)(0x692148D4)
+I (HARDWARE\trans.h)(0x69B90038)
 I (HARDWARE\control.h)(0x69A7BE8A)
 F (.\HARDWARE\BSP_IIC.h)(0x68D33FB3)()
 F (.\HARDWARE\mpu6050.c)(0x69455807)(-xc -std=c99 --target=arm-arm-none-eabi -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard -c-fno-rtti -funsigned-char -fshort-enums -fshort-wchar-D__MICROLIB -gdwarf-4 -O3 -ffunction-sections -Wno-packed -Wno-missing-variable-declarations -Wno-missing-prototypes -Wno-missing-noreturn -Wno-sign-conversion -Wno-nonportable-include-path -Wno-reserved-id-macro -Wno-unused-macros -Wno-documentation-unknown-command -Wno-documentation -Wno-license-management -Wno-parentheses-equality -Wno-reserved-identifier -I ../Core/Inc -I ../Drivers/STM32F4xx_HAL_Driver/Inc -I ../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy -I ../Drivers/CMSIS/Device/ST/STM32F4xx/Include -I ../Drivers/CMSIS/Include -I ./HARDWARE-I./RTE/_shoutao-IC:/Users/a2248/AppData/Local/Arm/Packs/ARM/CMSIS/5.9.0/CMSIS/Core/Include-IC:/Users/a2248/AppData/Local/Arm/Packs/Keil/STM32F4xx_DFP/2.16.0/Drivers/CMSIS/Device/ST/STM32F4xx/Include-D__UVISION_VERSION="538" -D_RTE_ -DSTM32F407xx -D_RTE_ -DUSE_HAL_DRIVER -DSTM32F407xx-o shoutao/mpu6050.o -MD)
@@ -1386,10 +1400,11 @@ I (HARDWARE\command.h)(0x68D16FB1)
 I (HARDWARE\JY901S.h)(0x68D40C5B)
 I (HARDWARE\BSP_IIC.h)(0x68D33FB3)
 I (HARDWARE\mpu6050.h)(0x69455807)
-I (HARDWARE\trans.h)(0x692148D4)
+I (HARDWARE\trans.h)(0x69B90038)
 I (HARDWARE\control.h)(0x69A7BE8A)
 F (.\HARDWARE\mpu6050.h)(0x69455807)()
-F (.\HARDWARE\trans.c)(0x68F20672)(-xc -std=c99 --target=arm-arm-none-eabi -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard -c-fno-rtti -funsigned-char -fshort-enums -fshort-wchar-D__MICROLIB -gdwarf-4 -O3 -ffunction-sections -Wno-packed -Wno-missing-variable-declarations -Wno-missing-prototypes -Wno-missing-noreturn -Wno-sign-conversion -Wno-nonportable-include-path -Wno-reserved-id-macro -Wno-unused-macros -Wno-documentation-unknown-command -Wno-documentation -Wno-license-management -Wno-parentheses-equality -Wno-reserved-identifier -I ../Core/Inc -I ../Drivers/STM32F4xx_HAL_Driver/Inc -I ../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy -I ../Drivers/CMSIS/Device/ST/STM32F4xx/Include -I ../Drivers/CMSIS/Include -I ./HARDWARE-I./RTE/_shoutao-IC:/Users/a2248/AppData/Local/Arm/Packs/ARM/CMSIS/5.9.0/CMSIS/Core/Include-IC:/Users/a2248/AppData/Local/Arm/Packs/Keil/STM32F4xx_DFP/2.16.0/Drivers/CMSIS/Device/ST/STM32F4xx/Include-D__UVISION_VERSION="538" -D_RTE_ -DSTM32F407xx -D_RTE_ -DUSE_HAL_DRIVER -DSTM32F407xx-o shoutao/trans.o -MD)
+F (.\HARDWARE\trans.c)(0x69B90038)(-xc -std=c99 --target=arm-arm-none-eabi -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard -c-fno-rtti -funsigned-char -fshort-enums -fshort-wchar-D__MICROLIB -gdwarf-4 -O3 -ffunction-sections -Wno-packed -Wno-missing-variable-declarations -Wno-missing-prototypes -Wno-missing-noreturn -Wno-sign-conversion -Wno-nonportable-include-path -Wno-reserved-id-macro -Wno-unused-macros -Wno-documentation-unknown-command -Wno-documentation -Wno-license-management -Wno-parentheses-equality -Wno-reserved-identifier -I ../Core/Inc -I ../Drivers/STM32F4xx_HAL_Driver/Inc -I ../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy -I ../Drivers/CMSIS/Device/ST/STM32F4xx/Include -I ../Drivers/CMSIS/Include -I ./HARDWARE-I./RTE/_shoutao-IC:/Users/a2248/AppData/Local/Arm/Packs/ARM/CMSIS/5.9.0/CMSIS/Core/Include-IC:/Users/a2248/AppData/Local/Arm/Packs/Keil/STM32F4xx_DFP/2.16.0/Drivers/CMSIS/Device/ST/STM32F4xx/Include-D__UVISION_VERSION="538" -D_RTE_ -DSTM32F407xx -D_RTE_ -DUSE_HAL_DRIVER -DSTM32F407xx-o shoutao/trans.o -MD)
+I (HARDWARE\trans.h)(0x69B90038)
 I (HARDWARE\headfile.h)(0x691E6EAF)
 I (C:\Keil_v5\ARM\ARMCLANG\include\math.h)(0x63884908)
 I (C:\Keil_v5\ARM\ARMCLANG\include\string.h)(0x63884908)
@@ -1440,9 +1455,9 @@ I (HARDWARE\command.h)(0x68D16FB1)
 I (HARDWARE\JY901S.h)(0x68D40C5B)
 I (HARDWARE\BSP_IIC.h)(0x68D33FB3)
 I (HARDWARE\mpu6050.h)(0x69455807)
-I (HARDWARE\trans.h)(0x692148D4)
 I (HARDWARE\control.h)(0x69A7BE8A)
-F (.\HARDWARE\trans.h)(0x692148D4)()
+I (C:\Keil_v5\ARM\ARMCLANG\include\limits.h)(0x63884908)
+F (.\HARDWARE\trans.h)(0x69B90038)()
 F (.\HARDWARE\control.c)(0x69B2827E)(-xc -std=c99 --target=arm-arm-none-eabi -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard -c-fno-rtti -funsigned-char -fshort-enums -fshort-wchar-D__MICROLIB -gdwarf-4 -O3 -ffunction-sections -Wno-packed -Wno-missing-variable-declarations -Wno-missing-prototypes -Wno-missing-noreturn -Wno-sign-conversion -Wno-nonportable-include-path -Wno-reserved-id-macro -Wno-unused-macros -Wno-documentation-unknown-command -Wno-documentation -Wno-license-management -Wno-parentheses-equality -Wno-reserved-identifier -I ../Core/Inc -I ../Drivers/STM32F4xx_HAL_Driver/Inc -I ../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy -I ../Drivers/CMSIS/Device/ST/STM32F4xx/Include -I ../Drivers/CMSIS/Include -I ./HARDWARE-I./RTE/_shoutao-IC:/Users/a2248/AppData/Local/Arm/Packs/ARM/CMSIS/5.9.0/CMSIS/Core/Include-IC:/Users/a2248/AppData/Local/Arm/Packs/Keil/STM32F4xx_DFP/2.16.0/Drivers/CMSIS/Device/ST/STM32F4xx/Include-D__UVISION_VERSION="538" -D_RTE_ -DSTM32F407xx -D_RTE_ -DUSE_HAL_DRIVER -DSTM32F407xx-o shoutao/control.o -MD)
 I (HARDWARE\control.h)(0x69A7BE8A)
 I (HARDWARE\headfile.h)(0x691E6EAF)
@@ -1495,7 +1510,7 @@ I (HARDWARE\command.h)(0x68D16FB1)
 I (HARDWARE\JY901S.h)(0x68D40C5B)
 I (HARDWARE\BSP_IIC.h)(0x68D33FB3)
 I (HARDWARE\mpu6050.h)(0x69455807)
-I (HARDWARE\trans.h)(0x692148D4)
+I (HARDWARE\trans.h)(0x69B90038)
 I (HARDWARE\gesture_model.h)(0x69A7BEE7)
 I (HARDWARE\swipe_model.h)(0x69A6724B)
 F (.\HARDWARE\control.h)(0x69A7BE8A)()

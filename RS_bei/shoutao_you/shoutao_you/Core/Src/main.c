@@ -145,7 +145,13 @@ int main(void) {
 
     // 统一手势识别：每 0.2s 采样一次，方向手势发出对应命令，其余发 0x00
     // HAL_UART_Transmit 已在 Gesture_Run 内部调用（每 0.2s 一次）
+#if !GLOVE_MIGRATION_PROTOCOL_ENABLE
+    /*
+     * 旧版逻辑：
+     * STM32 本地完成手势识别，再通过 huart6 发送 1 字节控制命令。
+     */
     Gesture_Test();
+#endif
 
     // 格式：f0x,f0y,f1x,f1y,f2x,f2y,f3x,f3y,roll,pitch
     //        printf("%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f\r\n",
@@ -190,6 +196,18 @@ int main(void) {
 //      }
 //    }
 		
+#if GLOVE_MIGRATION_PROTOCOL_ENABLE
+    if (trans_flag == 1) {
+      trans_flag = 0;
+
+      /*
+       * 迁移模式：
+       * STM32 只负责前端采集与特征发送。
+       * 每到发送节拍就通过 huart6 向 RA6M5 发出一帧 10 维固定特征数据。
+       */
+      (void)GloveFrame_SendFeatureFrame();
+    }
+#else
     if (trans_flag == 1) {
       trans_flag = 0;
       
@@ -214,6 +232,7 @@ int main(void) {
           cmd_confirm_cnt = 0;
       }
     }
+#endif
 
 
     // 通道计数器递增，自动循环
