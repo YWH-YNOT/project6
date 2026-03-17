@@ -6,7 +6,7 @@
         #endif
 /* Number of interrupts allocated */
 #ifndef VECTOR_DATA_IRQ_COUNT
-#define VECTOR_DATA_IRQ_COUNT    (9)
+#define VECTOR_DATA_IRQ_COUNT    (10)
 #endif
 /* ISR prototypes */
 void r_icu_isr(void);
@@ -14,6 +14,7 @@ void sci_uart_rxi_isr(void);
 void sci_uart_txi_isr(void);
 void sci_uart_tei_isr(void);
 void sci_uart_eri_isr(void);
+void agt_int_isr(void);
 
 /* Vector table allocations */
 #define VECTOR_NUMBER_ICU_IRQ6 ((IRQn_Type) 0) /* ICU IRQ6 (External pin interrupt 6) */
@@ -34,6 +35,8 @@ void sci_uart_eri_isr(void);
 #define SCI2_TEI_IRQn          ((IRQn_Type) 7) /* SCI2 TEI (Transmit end) */
 #define VECTOR_NUMBER_SCI2_ERI ((IRQn_Type) 8) /* SCI2 ERI (Receive error) */
 #define SCI2_ERI_IRQn          ((IRQn_Type) 8) /* SCI2 ERI (Receive error) */
+#define VECTOR_NUMBER_AGT0_INT ((IRQn_Type) 9) /* AGT0 INT (AGT interrupt) */
+#define AGT0_INT_IRQn          ((IRQn_Type) 9) /* AGT0 INT (AGT interrupt) */
 #ifdef __cplusplus
         }
         #endif

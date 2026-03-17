@@ -13,6 +13,7 @@
             [6] = sci_uart_txi_isr, /* SCI2 TXI (Transmit data empty) */
             [7] = sci_uart_tei_isr, /* SCI2 TEI (Transmit end) */
             [8] = sci_uart_eri_isr, /* SCI2 ERI (Receive error) */
+            [9] = agt_int_isr, /* AGT0 INT (AGT interrupt) */
         };
         #if BSP_FEATURE_ICU_HAS_IELSR
         const bsp_interrupt_event_t g_interrupt_event_link_select[BSP_ICU_VECTOR_MAX_ENTRIES] =
@@ -26,6 +27,7 @@
             [6] = BSP_PRV_VECT_ENUM(EVENT_SCI2_TXI,GROUP6), /* SCI2 TXI (Transmit data empty) */
             [7] = BSP_PRV_VECT_ENUM(EVENT_SCI2_TEI,GROUP7), /* SCI2 TEI (Transmit end) */
             [8] = BSP_PRV_VECT_ENUM(EVENT_SCI2_ERI,GROUP0), /* SCI2 ERI (Receive error) */
+            [9] = BSP_PRV_VECT_ENUM(EVENT_AGT0_INT,GROUP1), /* AGT0 INT (AGT interrupt) */
         };
         #endif
         #endif

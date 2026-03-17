@@ -25,21 +25,22 @@ static char const * const g_gesture_feature_names[GESTURE_SERVICE_FEATURE_COUNT]
 
 /*
  * 内部上下文：
- * 1. sampled_* 保存当前 100ms 取样窗口最终用于分类的特征；
- * 2. has_classify_anchor / last_classify_tick_ms 负责维护 200ms 分类节拍；
- * 3. 这样 UART 收包、样本更新、SVM 分类三件事被拆成了不同职责。
+ * 1. sampled_* 保存最近一次 100ms 采样得到的分类输入；
+ * 2. history_cmd / confirm_count 复刻 STM32 端的发送过滤逻辑；
+ * 3. last_classified_sample_count 用于避免定时器连续消费同一份旧样本。
  */
 typedef struct st_gesture_service_context
 {
     bool     has_sample;
-    bool     has_classify_anchor;
     uint8_t  sampled_seq;
     uint8_t  sampled_status;
+    uint8_t  history_cmd;
+    uint8_t  confirm_count;
     uint32_t sampled_tick_ms;
     uint32_t last_sample_tick_ms;
-    uint32_t last_classify_tick_ms;
     uint32_t sample_count;
     uint32_t classify_count;
+    uint32_t last_classified_sample_count;
     int16_t  sampled_feature_raw[GESTURE_SERVICE_FEATURE_COUNT];
     float    sampled_feature[GESTURE_SERVICE_FEATURE_COUNT];
 } gesture_service_context_t;
@@ -66,9 +67,9 @@ static void gesture_service_reset_result (gesture_service_result_t * p_result)
 
 static void gesture_service_copy_sample_from_frame (glove_frame_t const * p_frame)
 {
-    g_gesture_service_context.sampled_seq    = p_frame->seq;
-    g_gesture_service_context.sampled_status = p_frame->status;
-    g_gesture_service_context.sampled_tick_ms = p_frame->tick_ms;
+    g_gesture_service_context.sampled_seq         = p_frame->seq;
+    g_gesture_service_context.sampled_status      = p_frame->status;
+    g_gesture_service_context.sampled_tick_ms     = p_frame->tick_ms;
     g_gesture_service_context.last_sample_tick_ms = p_frame->tick_ms;
     g_gesture_service_context.sample_count++;
 
@@ -78,6 +79,24 @@ static void gesture_service_copy_sample_from_frame (glove_frame_t const * p_fram
     (void) memcpy(g_gesture_service_context.sampled_feature,
                   p_frame->feature,
                   sizeof(g_gesture_service_context.sampled_feature));
+}
+
+static void gesture_service_fill_result_from_sample (gesture_service_result_t * p_result)
+{
+    p_result->sample_seq     = g_gesture_service_context.sampled_seq;
+    p_result->sample_status  = g_gesture_service_context.sampled_status;
+    p_result->sample_tick_ms = g_gesture_service_context.sampled_tick_ms;
+    p_result->sample_count   = g_gesture_service_context.sample_count;
+    p_result->classify_count = g_gesture_service_context.classify_count;
+    p_result->history_cmd    = g_gesture_service_context.history_cmd;
+    p_result->confirm_count  = g_gesture_service_context.confirm_count;
+
+    (void) memcpy(p_result->feature_raw,
+                  g_gesture_service_context.sampled_feature_raw,
+                  sizeof(p_result->feature_raw));
+    (void) memcpy(p_result->feature,
+                  g_gesture_service_context.sampled_feature,
+                  sizeof(p_result->feature));
 }
 
 static uint8_t gesture_service_map_command (uint8_t label)
@@ -105,6 +124,52 @@ static uint8_t gesture_service_map_command (uint8_t label)
     }
 
     return g_cmd_map[label];
+}
+
+static void gesture_service_apply_send_filter (gesture_service_result_t * p_result)
+{
+    uint8_t cmd = p_result->cmd;
+
+    /*
+     * 0x02 是用户明确要求屏蔽的公共指令。
+     * 0x00 则表示本次没有有效动作，也不应继续向下派发。
+     */
+    if ((GESTURE_CMD_COMMON == cmd) || (GESTURE_CMD_NONE == cmd))
+    {
+        p_result->suppress_common = (GESTURE_CMD_COMMON == cmd);
+        g_gesture_service_context.history_cmd  = GESTURE_CMD_NONE;
+        g_gesture_service_context.confirm_count = 0U;
+        p_result->history_cmd                  = GESTURE_CMD_NONE;
+        p_result->confirm_count               = 0U;
+        return;
+    }
+
+    if (cmd == g_gesture_service_context.history_cmd)
+    {
+        if (g_gesture_service_context.confirm_count < UINT8_MAX)
+        {
+            g_gesture_service_context.confirm_count++;
+        }
+    }
+    else
+    {
+        g_gesture_service_context.history_cmd   = cmd;
+        g_gesture_service_context.confirm_count = 1U;
+    }
+
+    if (g_gesture_service_context.confirm_count >= GESTURE_SERVICE_SEND_CONFIRM_COUNT)
+    {
+        g_gesture_service_context.confirm_count = GESTURE_SERVICE_SEND_CONFIRM_COUNT;
+        p_result->send_ready                    = true;
+        p_result->send_cmd                      = cmd;
+    }
+    else
+    {
+        p_result->send_hold = true;
+    }
+
+    p_result->history_cmd   = g_gesture_service_context.history_cmd;
+    p_result->confirm_count = g_gesture_service_context.confirm_count;
 }
 
 static char const * gesture_service_get_label_name (uint8_t label)
@@ -198,8 +263,6 @@ void GestureService_Init (void)
 
 fsp_err_t GestureService_ProcessFrame (glove_frame_t const * p_frame, gesture_service_result_t * p_result)
 {
-    uint8_t label;
-
     if ((NULL == p_frame) || (NULL == p_result))
     {
         return FSP_ERR_ASSERTION;
@@ -224,48 +287,49 @@ fsp_err_t GestureService_ProcessFrame (glove_frame_t const * p_frame, gesture_se
         gesture_service_copy_sample_from_frame(p_frame);
         g_gesture_service_context.has_sample = true;
         p_result->sample_updated             = true;
+        gesture_service_fill_result_from_sample(p_result);
     }
 
-    /*
-     * 第一份样本只作为 200ms 分类节拍的起点，不立刻分类。
-     * 这样能够满足“持续接收，100ms取样，200ms发一次分类结果”的业务节奏。
-     */
-    if (p_result->sample_updated && (!g_gesture_service_context.has_classify_anchor))
+    return FSP_SUCCESS;
+}
+
+fsp_err_t GestureService_RunClassifyCycle (gesture_service_result_t * p_result)
+{
+    uint8_t label;
+
+    if (NULL == p_result)
     {
-        g_gesture_service_context.last_classify_tick_ms =
-            g_gesture_service_context.sampled_tick_ms;
-        g_gesture_service_context.has_classify_anchor = true;
+        return FSP_ERR_ASSERTION;
+    }
+
+    gesture_service_reset_result(p_result);
+
+    if (!g_gesture_service_context.has_sample)
+    {
         return FSP_SUCCESS;
     }
 
-    if ((!p_result->sample_updated) ||
-        (!gesture_service_is_elapsed(g_gesture_service_context.sampled_tick_ms,
-                                     g_gesture_service_context.last_classify_tick_ms,
-                                     GESTURE_SERVICE_CLASSIFY_PERIOD_MS)))
+    /*
+     * 如果 200ms 定时器先于 100ms 新样本到来，就直接跳过本次周期，
+     * 避免反复对同一份旧数据重复分类与发指令。
+     */
+    if (g_gesture_service_context.sample_count == g_gesture_service_context.last_classified_sample_count)
     {
         return FSP_SUCCESS;
     }
 
     label = GestureModel_Classify(g_gesture_service_context.sampled_feature);
 
-    g_gesture_service_context.last_classify_tick_ms = g_gesture_service_context.sampled_tick_ms;
     g_gesture_service_context.classify_count++;
+    g_gesture_service_context.last_classified_sample_count = g_gesture_service_context.sample_count;
 
     p_result->classify_ready = true;
     p_result->label          = label;
     p_result->cmd            = gesture_service_map_command(label);
-    p_result->sample_seq     = g_gesture_service_context.sampled_seq;
-    p_result->sample_status  = g_gesture_service_context.sampled_status;
-    p_result->sample_tick_ms = g_gesture_service_context.sampled_tick_ms;
-    p_result->sample_count   = g_gesture_service_context.sample_count;
-    p_result->classify_count = g_gesture_service_context.classify_count;
 
-    (void) memcpy(p_result->feature_raw,
-                  g_gesture_service_context.sampled_feature_raw,
-                  sizeof(p_result->feature_raw));
-    (void) memcpy(p_result->feature,
-                  g_gesture_service_context.sampled_feature,
-                  sizeof(p_result->feature));
+    gesture_service_fill_result_from_sample(p_result);
+    p_result->classify_count = g_gesture_service_context.classify_count;
+    gesture_service_apply_send_filter(p_result);
 
     return FSP_SUCCESS;
 }
@@ -378,6 +442,75 @@ fsp_err_t GestureService_PrintResult (mid_uart_port_t tx_port, gesture_service_r
     if (FSP_SUCCESS != err)
     {
         return err;
+    }
+
+    err = gesture_service_send_text(tx_port, " hist=0x");
+    if (FSP_SUCCESS != err)
+    {
+        return err;
+    }
+
+    err = gesture_service_send_hex8(tx_port, p_result->history_cmd);
+    if (FSP_SUCCESS != err)
+    {
+        return err;
+    }
+
+    err = gesture_service_send_text(tx_port, " confirm=");
+    if (FSP_SUCCESS != err)
+    {
+        return err;
+    }
+
+    err = gesture_service_send_uint32(tx_port, p_result->confirm_count);
+    if (FSP_SUCCESS != err)
+    {
+        return err;
+    }
+
+    err = gesture_service_send_text(tx_port, " tx=");
+    if (FSP_SUCCESS != err)
+    {
+        return err;
+    }
+
+    if (p_result->send_ready)
+    {
+        err = gesture_service_send_text(tx_port, "0x");
+        if (FSP_SUCCESS != err)
+        {
+            return err;
+        }
+
+        err = gesture_service_send_hex8(tx_port, p_result->send_cmd);
+        if (FSP_SUCCESS != err)
+        {
+            return err;
+        }
+    }
+    else if (p_result->suppress_common)
+    {
+        err = gesture_service_send_text(tx_port, "skip(0x02)");
+        if (FSP_SUCCESS != err)
+        {
+            return err;
+        }
+    }
+    else if (p_result->send_hold)
+    {
+        err = gesture_service_send_text(tx_port, "hold");
+        if (FSP_SUCCESS != err)
+        {
+            return err;
+        }
+    }
+    else
+    {
+        err = gesture_service_send_text(tx_port, "skip");
+        if (FSP_SUCCESS != err)
+        {
+            return err;
+        }
     }
 
     err = gesture_service_send_text(tx_port, "\r\nfeat=[");
