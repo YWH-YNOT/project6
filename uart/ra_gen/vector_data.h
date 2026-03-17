@@ -6,7 +6,7 @@
         #endif
 /* Number of interrupts allocated */
 #ifndef VECTOR_DATA_IRQ_COUNT
-#define VECTOR_DATA_IRQ_COUNT    (5)
+#define VECTOR_DATA_IRQ_COUNT    (9)
 #endif
 /* ISR prototypes */
 void r_icu_isr(void);
@@ -26,6 +26,14 @@ void sci_uart_eri_isr(void);
 #define SCI7_TEI_IRQn          ((IRQn_Type) 3) /* SCI7 TEI (Transmit end) */
 #define VECTOR_NUMBER_SCI7_ERI ((IRQn_Type) 4) /* SCI7 ERI (Receive error) */
 #define SCI7_ERI_IRQn          ((IRQn_Type) 4) /* SCI7 ERI (Receive error) */
+#define VECTOR_NUMBER_SCI2_RXI ((IRQn_Type) 5) /* SCI2 RXI (Receive data full) */
+#define SCI2_RXI_IRQn          ((IRQn_Type) 5) /* SCI2 RXI (Receive data full) */
+#define VECTOR_NUMBER_SCI2_TXI ((IRQn_Type) 6) /* SCI2 TXI (Transmit data empty) */
+#define SCI2_TXI_IRQn          ((IRQn_Type) 6) /* SCI2 TXI (Transmit data empty) */
+#define VECTOR_NUMBER_SCI2_TEI ((IRQn_Type) 7) /* SCI2 TEI (Transmit end) */
+#define SCI2_TEI_IRQn          ((IRQn_Type) 7) /* SCI2 TEI (Transmit end) */
+#define VECTOR_NUMBER_SCI2_ERI ((IRQn_Type) 8) /* SCI2 ERI (Receive error) */
+#define SCI2_ERI_IRQn          ((IRQn_Type) 8) /* SCI2 ERI (Receive error) */
 #ifdef __cplusplus
         }
         #endif
