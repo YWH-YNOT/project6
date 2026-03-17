@@ -6,6 +6,7 @@ FSP_CPP_FOOTER
 
 #include "debug_uart/glove_frame.h"
 #include "debug_uart/mid_uart.h"
+#include "gesture/gesture_service.h"
 #include "led/bsp_led.h"
 
 /*******************************************************************************************************************//**
@@ -14,14 +15,16 @@ FSP_CPP_FOOTER
  **********************************************************************************************************************/
 void hal_entry(void)
 {
-    glove_frame_t rx_frame;
-    fsp_err_t     err = FSP_SUCCESS;
+    glove_frame_t            rx_frame;
+    gesture_service_result_t gesture_result;
+    fsp_err_t                err = FSP_SUCCESS;
 
     /*
-     * 应用层只负责流程编排：
-     * 1. 初始化 LED 和串口；
-     * 2. 从 uart2 接收 STM32 特征帧；
-     * 3. 把解析结果通过 uart7 打印出来。
+     * 应用层只负责业务编排：
+     * 1. 初始化 LED、串口和手势业务层；
+     * 2. 持续接收 STM32 发来的特征帧；
+     * 3. 每 100ms 更新一次分类样本；
+     * 4. 每 200ms 输出一次分类结果和命令。
      */
     LED_Init();
 
@@ -33,33 +36,44 @@ void hal_entry(void)
         }
     }
 
+    /* 手势业务层内部维护 100ms 取样和 200ms 分类节拍。 */
+    GestureService_Init();
+
     /*
      * uart7 作为调试口，启动后先打印提示信息。
      * 这样你接上串口助手后，可以立刻知道瑞萨端已经进入等待收帧状态。
      */
-    (void) MID_Uart_SendString(MID_UART_PORT_7, "\r\nRA6M5 glove rx ready\r\n");
-    (void) MID_Uart_SendString(MID_UART_PORT_7, "wait uart2 frame: AA 55 ... 31 bytes\r\n\r\n");
+    (void) MID_Uart_SendString(MID_UART_PORT_7, "\r\nRA6M5 gesture classify ready\r\n");
+    (void) MID_Uart_SendString(MID_UART_PORT_7, "uart2 keep receiving, sample=100ms, classify=200ms\r\n\r\n");
 
     while (1)
     {
         /*
-         * uart2 接 STM32 发来的二进制协议帧。
-         * GloveFrame_Receive() 会一直阻塞，直到同步到一帧合法完整数据。
+         * uart2 持续接收 STM32 发来的固定帧。
+         * 这里每收到一帧就立刻交给手势业务层，让业务层自己决定是否更新样本、是否触发分类。
          */
         err = GloveFrame_Receive(MID_UART_PORT_2, &rx_frame);
-        if (FSP_SUCCESS == err)
+        if (FSP_SUCCESS != err)
         {
-            /* 每收到一帧有效数据就翻转一次 LED，作为最直观的运行反馈。 */
-            LED1_TOGGLE;
-            (void) GloveFrame_PrintDebug(MID_UART_PORT_7, &rx_frame);
+            (void) MID_Uart_SendString(MID_UART_PORT_7, "uart2 receive error\r\n");
+            continue;
         }
-        else
+
+        err = GestureService_ProcessFrame(&rx_frame, &gesture_result);
+        if (FSP_SUCCESS != err)
+        {
+            (void) MID_Uart_SendString(MID_UART_PORT_7, "gesture process error\r\n");
+            continue;
+        }
+
+        if (gesture_result.classify_ready)
         {
             /*
-             * 只有串口底层读取异常才会走到这里。
-             * 普通坏帧、错帧会在协议层内部继续同步，不会把垃圾数据抛给应用层。
+             * LED 每完成一次 200ms 分类才翻转一次。
+             * 这样肉眼更容易看出系统正在稳定工作，而不是因为 20ms 收包过快导致常亮/常灭错觉。
              */
-            (void) MID_Uart_SendString(MID_UART_PORT_7, "uart2 receive error\r\n");
+            LED1_TOGGLE;
+            (void) GestureService_PrintResult(MID_UART_PORT_7, &gesture_result);
         }
     }
 }

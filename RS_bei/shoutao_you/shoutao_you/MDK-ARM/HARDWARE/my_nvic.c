@@ -1,4 +1,4 @@
-﻿#ifndef my_nvic_H_
+#ifndef my_nvic_H_
 #define my_nvic_H_
 #include "headfile.h"
 
@@ -154,7 +154,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
         /* 1ms任务（每个中断周期执行） */
         task1ms_flag = true;			
 	
-        if (++task200ms_cnt >= 200) 
+        if (++task200ms_cnt >= 20) 
 				{
 						trans_flag = 1;					
             task200ms_cnt = 0;
