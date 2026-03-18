@@ -154,13 +154,13 @@ int main(void) {
 #endif
 
     // 格式：f0x,f0y,f1x,f1y,f2x,f2y,f3x,f3y,roll,pitch
-    //        printf("%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f\r\n",
-    //              mpu_data[0].filter_angle_x, mpu_data[0].filter_angle_y,
-    //              mpu_data[1].filter_angle_x, mpu_data[1].filter_angle_y,
-    //				mpu_data[2].filter_angle_x,
-    // mpu_data[2].filter_angle_y,
-    //              mpu_data[3].filter_angle_x, mpu_data[3].filter_angle_y,
-    //              jy901s_data.angle_roll, jy901s_data.angle_pitch);
+//            printf("%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f\r\n",
+//                  mpu_data[0].filter_angle_x, mpu_data[0].filter_angle_y,
+//                  mpu_data[1].filter_angle_x, mpu_data[1].filter_angle_y,
+//									mpu_data[2].filter_angle_x,
+//									mpu_data[2].filter_angle_y,
+//                  mpu_data[3].filter_angle_x, mpu_data[3].filter_angle_y,
+//                  jy901s_data.angle_roll, jy901s_data.angle_pitch);
 
     /* ---- 挥手数据采集模式（采集时取消注释，正常运行时注释掉）----
      * 配合 tools/collect_swipe.py 使用

@@ -9,8 +9,8 @@ train_svm.py — 手势分类器训练 & C代码导出工具
   2. 特征标准化（StandardScaler）
   3. 训练 LinearSVC（线性SVM）
   4. 5折交叉验证打印准确率
-  5. 将模型权重导出为 gesture_model.h（C语言数组）
-       → 直接 #include 到 STM32 固件中，无需外部库
+  5. 将模型权重导出为 gesture_model.h（C语言头文件）
+       → 可直接被 STM32 和 RA6M5 固件共用，无需外部库
 
 依赖：
   pip install scikit-learn numpy pandas
@@ -162,6 +162,9 @@ def train_and_evaluate(X, y):
 def export_c_header(scaler, svm, output_path: str, accuracy: float):
     """
     将 StandardScaler 和 LinearSVC 的参数导出为 C 头文件。
+    导出的头文件同时兼容两种调用方式：
+    1. STM32 常用的多参数输入 Gesture_Classify(...)
+    2. RA6M5 常用的数组输入 GestureModel_Classify(feature_array)
 
     LinearSVC 决策函数：
       score[k] = W[k] · x_norm + b[k]
@@ -174,14 +177,24 @@ def export_c_header(scaler, svm, output_path: str, accuracy: float):
     b      = svm.intercept_.astype(np.float32)  # shape: (n_classes,)
 
     def arr_to_c(arr, name, dtype="float"):
-        """将 numpy 数组转为 C 初始化列表"""
-        flat = arr.flatten()
-        vals = ", ".join(f"{v:.6f}f" for v in flat)
+        """将 numpy 数组转为更易读的 C 初始化列表"""
         if arr.ndim == 1:
-            return f"static const {dtype} {name}[{len(flat)}] = {{{vals}}};"
-        else:
-            rows, cols = arr.shape
-            return f"static const {dtype} {name}[{rows}][{cols}] = {{{vals}}};"
+            vals = ", ".join(f"{v:.6f}f" for v in arr)
+            return f"static const {dtype} {name}[{len(arr)}] = {{{vals}}};"
+
+        rows, cols = arr.shape
+        row_lines = []
+        for row in arr:
+            vals = ", ".join(f"{v:.6f}f" for v in row)
+            row_lines.append(f"    {{{vals}}}")
+
+        body = ",\n".join(row_lines)
+        return (
+            f"static const {dtype} {name}[{rows}][{cols}] =\n"
+            "{\n"
+            f"{body}\n"
+            "};"
+        )
 
     lines = [
         "/**",
@@ -192,15 +205,21 @@ def export_c_header(scaler, svm, output_path: str, accuracy: float):
         " *",
         " * Usage in STM32:",
         " *   #include \"gesture_model.h\"",
-        " *   uint8_t label = Gesture_Classify(f0,f1,f2,f3,roll,pitch);",
+        " *   uint8_t label = Gesture_Classify(...);",
+        " *",
+        " * Usage in RA6M5:",
+        " *   #include \"gesture_model.h\"",
+        " *   uint8_t label = GestureModel_Classify(feature_array);",
         " */",
         "#ifndef GESTURE_MODEL_H",
         "#define GESTURE_MODEL_H",
         "",
+        "#include <stddef.h>",
         "#include <stdint.h>",
         "",
         f"#define GM_N_FEATURES {N_FEATURES}",
         f"#define GM_N_CLASSES  {N_CLASSES}",
+        "#define GM_INVALID_LABEL 0xFFU",
         "",
         "/* --- StandardScaler 参数 --- */",
         arr_to_c(mean_,  "gm_mean"),
@@ -230,22 +249,23 @@ def export_c_header(scaler, svm, output_path: str, accuracy: float):
         "};",
         "",
         "/**",
-        " * @brief  SVM 手势分类推理（纯C，无需外部库）",
-        f" * @param  {func_args}",
-        " * @retval 手势类别编号（0~N_CLASSES-1），失败返回 0xFF",
+        " * @brief  SVM 手势分类推理（数组输入，适合 RA6M5 直接喂特征数组）",
+        " * @param  feat 长度为 GM_N_FEATURES 的特征数组指针",
+        " * @retval 手势类别编号（0~N_CLASSES-1），失败返回 GM_INVALID_LABEL",
         " */",
-        "static inline uint8_t Gesture_Classify(",
-        f"    {func_params})",
+        "static inline uint8_t GestureModel_Classify(float const feat[GM_N_FEATURES])",
         "{",
-        f"    float feat[GM_N_FEATURES] = {{{func_args}}};",
         "    float best_score = -1e30f;",
-        "    uint8_t best_cls = 0xFF;",
-        "    for (uint8_t k = 0; k < GM_N_CLASSES; k++) {",
+        "    uint8_t best_cls = GM_INVALID_LABEL;",
+        "    if (NULL == feat) {",
+        "        return GM_INVALID_LABEL;",
+        "    }",
+        "    for (uint8_t k = 0U; k < GM_N_CLASSES; k++) {",
         "        /* score = W[k] · x_norm + b[k] */",
         "        float score = gm_b[k];",
-        "        for (uint8_t i = 0; i < GM_N_FEATURES; i++) {",
+        "        for (uint8_t i = 0U; i < GM_N_FEATURES; i++) {",
         "            float xn = (feat[i] - gm_mean[i]) / gm_scale[i];",
-        "            score += gm_W[k][i] * xn;  /* k*N_FEATURES+i for flat array */",
+        "            score += gm_W[k][i] * xn;",
         "        }",
         "        if (score > best_score) {",
         "            best_score = score;",
@@ -255,6 +275,18 @@ def export_c_header(scaler, svm, output_path: str, accuracy: float):
         "    return best_cls;",
         "}",
         "",
+        "/**",
+        " * @brief  SVM 手势分类推理（多参数输入，兼容 STM32 原有调用方式）",
+        f" * @param  {func_args}",
+        " * @retval 手势类别编号（0~N_CLASSES-1），失败返回 GM_INVALID_LABEL",
+        " */",
+        "static inline uint8_t Gesture_Classify(",
+        f"    {func_params})",
+        "{",
+        f"    float feat[GM_N_FEATURES] = {{{func_args}}};",
+        "    return GestureModel_Classify(feat);",
+        "}",
+        "",
         "#endif /* GESTURE_MODEL_H */",
     ]
 
@@ -262,7 +294,7 @@ def export_c_header(scaler, svm, output_path: str, accuracy: float):
         f.write("\n".join(lines))
 
     print(f"\n[导出] 已生成 {output_path}")
-    print(f"  在 STM32 工程中添加该文件，然后调用：")
+    print(f"  STM32 用法：")
     print(f"    #include \"gesture_model.h\"")
     print(f"    uint8_t g = Gesture_Classify(")
     print(f"        mpu_data[0].filter_angle_x, mpu_data[0].filter_angle_y,")
@@ -270,6 +302,10 @@ def export_c_header(scaler, svm, output_path: str, accuracy: float):
     print(f"        mpu_data[2].filter_angle_x, mpu_data[2].filter_angle_y,")
     print(f"        mpu_data[3].filter_angle_x, mpu_data[3].filter_angle_y,")
     print(f"        jy901s_data.angle_roll, jy901s_data.angle_pitch);")
+    print(f"  RA6M5 用法：")
+    print(f"    1. 保持导出文件路径为 tools/gesture_model.h")
+    print(f"    2. RA 工程的 uart/src/gesture/gesture_model.h 会直接包含该文件")
+    print(f"    3. 业务层直接调用 GestureModel_Classify(feature_array)")
 
 def main():
     parser = argparse.ArgumentParser(description="手势SVM分类器训练工具")
@@ -285,7 +321,7 @@ def main():
     scaler, svm, acc = train_and_evaluate(X, y)
     export_c_header(scaler, svm, args.out, acc)
 
-    print("\n[完成] 请将生成的头文件复制到 STM32 工程的 HARDWARE/ 目录")
+    print("\n[完成] STM32 和 RA6M5 现在都可以直接复用这份导出的 gesture_model.h")
 
 
 if __name__ == "__main__":

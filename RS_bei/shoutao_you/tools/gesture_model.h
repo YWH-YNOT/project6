@@ -6,26 +6,44 @@
  *
  * Usage in STM32:
  *   #include "gesture_model.h"
- *   uint8_t label = Gesture_Classify(f0,f1,f2,f3,roll,pitch);
+ *   uint8_t label = Gesture_Classify(...);
+ *
+ * Usage in RA6M5:
+ *   #include "gesture_model.h"
+ *   uint8_t label = GestureModel_Classify(feature_array);
  */
 #ifndef GESTURE_MODEL_H
 #define GESTURE_MODEL_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #define GM_N_FEATURES 10
 #define GM_N_CLASSES  9
+#define GM_INVALID_LABEL 0xFFU
 
 /* --- StandardScaler 参数 --- */
 static const float gm_mean[10] = {-25.101862f, 24.178146f, -37.274487f, 7.617027f, -22.354797f, 1.451018f, -12.301026f, 1.354114f, 32.991261f, 6.068376f};
 static const float gm_scale[10] = {32.478775f, 21.176632f, 29.013323f, 23.492916f, 35.327015f, 22.988407f, 42.474228f, 22.432766f, 29.686691f, 24.520857f};
 
 /* --- LinearSVC 权重 W[class][feature] 和偏置 b[class] --- */
-static const float gm_W[9][10] = {-1.067263f, -2.792433f, -1.080884f, -1.704304f, 0.242090f, 0.119455f, -0.636904f, -3.398105f, 1.805671f, 8.153774f, 0.412971f, 0.285017f, 0.954482f, 0.147183f, 0.395713f, -0.931799f, -0.569455f, -0.001715f, -0.226898f, 0.156015f, -1.215665f, 0.418719f, 0.284910f, -0.015399f, -1.161343f, 0.092417f, 1.194421f, -0.066096f, -0.177673f, 0.060570f, -0.196298f, 0.359113f, -0.618648f, 0.400950f, 1.114324f, -0.245582f, 0.149611f, -0.044346f, -0.135361f, -0.053144f, 1.327772f, -0.400142f, -0.799202f, 0.169871f, -0.242309f, -0.013126f, -0.080036f, -0.123689f, -0.346037f, -0.042049f, 0.242218f, 0.952151f, -0.446652f, 0.444484f, -1.191978f, -0.620049f, -1.084980f, 2.899781f, -1.023174f, -4.109328f, 0.102201f, -0.306963f, -0.141128f, 0.048959f, 0.314245f, 0.106818f, 0.221662f, 0.142148f, -1.591639f, 0.247434f, -0.480960f, -0.135778f, 0.273038f, -0.545839f, -0.182295f, -0.270014f, 0.204249f, -0.317281f, -0.175443f, -0.286617f, 0.133080f, 0.332197f, 0.084391f, 0.375787f, 0.241076f, 0.425396f, -0.400358f, 0.294558f, 0.192690f, 0.478857f};
+static const float gm_W[9][10] =
+{
+    {-1.067263f, -2.792433f, -1.080884f, -1.704304f, 0.242090f, 0.119455f, -0.636904f, -3.398105f, 1.805671f, 8.153774f},
+    {0.412971f, 0.285017f, 0.954482f, 0.147183f, 0.395713f, -0.931799f, -0.569455f, -0.001715f, -0.226898f, 0.156015f},
+    {-1.215665f, 0.418719f, 0.284910f, -0.015399f, -1.161343f, 0.092417f, 1.194421f, -0.066096f, -0.177673f, 0.060570f},
+    {-0.196298f, 0.359113f, -0.618648f, 0.400950f, 1.114324f, -0.245582f, 0.149611f, -0.044346f, -0.135361f, -0.053144f},
+    {1.327772f, -0.400142f, -0.799202f, 0.169871f, -0.242309f, -0.013126f, -0.080036f, -0.123689f, -0.346037f, -0.042049f},
+    {0.242218f, 0.952151f, -0.446652f, 0.444484f, -1.191978f, -0.620049f, -1.084980f, 2.899781f, -1.023174f, -4.109328f},
+    {0.102201f, -0.306963f, -0.141128f, 0.048959f, 0.314245f, 0.106818f, 0.221662f, 0.142148f, -1.591639f, 0.247434f},
+    {-0.480960f, -0.135778f, 0.273038f, -0.545839f, -0.182295f, -0.270014f, 0.204249f, -0.317281f, -0.175443f, -0.286617f},
+    {0.133080f, 0.332197f, 0.084391f, 0.375787f, 0.241076f, 0.425396f, -0.400358f, 0.294558f, 0.192690f, 0.478857f}
+};
 static const float gm_b[9] = {-1.939939f, -1.516030f, -1.377746f, -1.111945f, -1.170178f, -2.986409f, -1.907196f, -1.411201f, -1.488806f};
 
 /* --- 手势名称（调试用） --- */
-static const char * const gm_labels[GM_N_CLASSES] = {
+static const char * const gm_labels[GM_N_CLASSES] =
+{
     "fist",
     "open",
     "one",
@@ -38,29 +56,52 @@ static const char * const gm_labels[GM_N_CLASSES] = {
 };
 
 /**
- * @brief  SVM 手势分类推理（纯C，无需外部库）
- * @param  f0x, f0y, f1x, f1y, f2x, f2y, f3x, f3y, roll, pitch
- * @retval 手势类别编号（0~N_CLASSES-1），失败返回 0xFF
+ * @brief  SVM 手势分类推理（数组输入，适合 RA6M5 直接喂特征数组）
+ * @param  feat 长度为 GM_N_FEATURES 的特征数组指针
+ * @retval 手势类别编号（0~N_CLASSES-1），失败返回 GM_INVALID_LABEL
+ */
+static inline uint8_t GestureModel_Classify(float const feat[GM_N_FEATURES])
+{
+    float   best_score = -1e30f;
+    uint8_t best_cls   = GM_INVALID_LABEL;
+
+    if (NULL == feat)
+    {
+        return GM_INVALID_LABEL;
+    }
+
+    for (uint8_t k = 0U; k < GM_N_CLASSES; k++)
+    {
+        /* score = W[k] · x_norm + b[k] */
+        float score = gm_b[k];
+
+        for (uint8_t i = 0U; i < GM_N_FEATURES; i++)
+        {
+            float xn = (feat[i] - gm_mean[i]) / gm_scale[i];
+            score += gm_W[k][i] * xn;
+        }
+
+        if (score > best_score)
+        {
+            best_score = score;
+            best_cls   = k;
+        }
+    }
+
+    return best_cls;
+}
+
+/**
+ * @brief  SVM 手势分类推理（多参数输入，兼容 STM32 原有调用方式）
+ * @param  f0x,f0y,f1x,f1y,f2x,f2y,f3x,f3y,roll,pitch
+ * @retval 手势类别编号（0~N_CLASSES-1），失败返回 GM_INVALID_LABEL
  */
 static inline uint8_t Gesture_Classify(
     float f0x, float f0y, float f1x, float f1y, float f2x, float f2y, float f3x, float f3y, float roll, float pitch)
 {
     float feat[GM_N_FEATURES] = {f0x, f0y, f1x, f1y, f2x, f2y, f3x, f3y, roll, pitch};
-    float best_score = -1e30f;
-    uint8_t best_cls = 0xFF;
-    for (uint8_t k = 0; k < GM_N_CLASSES; k++) {
-        /* score = W[k] · x_norm + b[k] */
-        float score = gm_b[k];
-        for (uint8_t i = 0; i < GM_N_FEATURES; i++) {
-            float xn = (feat[i] - gm_mean[i]) / gm_scale[i];
-            score += gm_W[k][i] * xn;  /* k*N_FEATURES+i for flat array */
-        }
-        if (score > best_score) {
-            best_score = score;
-            best_cls   = k;
-        }
-    }
-    return best_cls;
+
+    return GestureModel_Classify(feat);
 }
 
 #endif /* GESTURE_MODEL_H */
