@@ -1,21 +1,25 @@
 #include "bsp_debug_uart.h"
 
-/* 每个串口的运行状态都收口到这个结构体里，避免回调标志散落在全局变量中。 */
+/*
+ * 内部上下文说明：
+ * 1. 每个串口都有一份独立运行状态，避免把发送完成、接收完成等标志散落成多个全局变量。
+ * 2. is_open 表示底层 open 是否成功；
+ * 3. tx_done/rx_done 由回调置位，供阻塞接口轮询等待；
+ * 4. last_event 预留给后续错误排查和调试扩展使用。
+ */
 typedef struct st_bsp_debug_uart_channel
 {
-    /* 指向 FSP 生成的串口实例。 */
     uart_instance_t const * p_instance;
-    /* 标记串口是否已经成功打开。 */
     volatile bool           is_open;
-    /* 发送完成标志，由 UART_EVENT_TX_COMPLETE 置位。 */
     volatile bool           tx_done;
-    /* 接收完成标志，由 UART_EVENT_RX_COMPLETE 置位。 */
     volatile bool           rx_done;
-    /* 保存最近一次 UART 事件，后续如果要扩展错误处理可以直接利用。 */
     volatile uart_event_t   last_event;
 } bsp_debug_uart_channel_t;
 
-/* 板级层只维护 uart2、uart7 两个实例，后续如需扩串口，只需要在这里扩表。 */
+/*
+ * 模块内只维护 uart2 和 uart7 两个硬件实例。
+ * 如果后续需要扩展新的串口，只需要在这里扩表，并补上对应回调即可。
+ */
 static bsp_debug_uart_channel_t g_bsp_debug_uart_channels[BSP_DEBUG_UART_PORT_MAX] =
 {
     [BSP_DEBUG_UART_PORT_2] =
@@ -36,9 +40,19 @@ static bsp_debug_uart_channel_t g_bsp_debug_uart_channels[BSP_DEBUG_UART_PORT_MA
     }
 };
 
+/*
+ * 内部函数作用：
+ *   根据逻辑串口号找到对应的运行上下文。
+ * 调用关系：
+ *   仅供本文件内的初始化、收发、回调函数使用。
+ * 参数说明：
+ *   port: 逻辑串口号。
+ * 返回值：
+ *   成功时返回上下文指针；
+ *   如果端口超范围，返回 NULL。
+ */
 static bsp_debug_uart_channel_t * bsp_debug_uart_get_channel (bsp_debug_uart_port_t port)
 {
-    /* 先做端口边界保护，避免上层误传导致数组越界。 */
     if (port >= BSP_DEBUG_UART_PORT_MAX)
     {
         return NULL;
@@ -47,6 +61,17 @@ static bsp_debug_uart_channel_t * bsp_debug_uart_get_channel (bsp_debug_uart_por
     return &g_bsp_debug_uart_channels[port];
 }
 
+/*
+ * 内部函数作用：
+ *   统一处理 uart2/uart7 的底层回调，把 FSP 事件转换成本模块自己的完成标志。
+ * 调用关系：
+ *   由 uart2_callback、uart7_callback 间接调用。
+ * 参数说明：
+ *   port: 触发回调的逻辑串口号。
+ *   p_args: FSP 传入的回调事件参数。
+ * 返回值：
+ *   无。
+ */
 static void bsp_debug_uart_handle_callback (bsp_debug_uart_port_t port, uart_callback_args_t * p_args)
 {
     bsp_debug_uart_channel_t * p_channel = bsp_debug_uart_get_channel(port);
@@ -57,7 +82,12 @@ static void bsp_debug_uart_handle_callback (bsp_debug_uart_port_t port, uart_cal
 
     p_channel->last_event = p_args->event;
 
-    /* 只在这里处理硬件完成事件，上层完全不需要了解 FSP 的事件细节。 */
+    /*
+     * 这里只做最小化处理：
+     * 1. 记录最近一次事件；
+     * 2. 对发送完成和接收完成事件置位标志；
+     * 3. 不在回调里做任何业务逻辑，保持中断路径尽量短。
+     */
     switch (p_args->event)
     {
         case UART_EVENT_TX_COMPLETE:
@@ -79,6 +109,17 @@ static void bsp_debug_uart_handle_callback (bsp_debug_uart_port_t port, uart_cal
     }
 }
 
+/*
+ * 内部函数作用：
+ *   阻塞等待一次发送完成。
+ * 调用关系：
+ *   仅由 BSP_DebugUart_WriteBlocking 调用。
+ * 参数说明：
+ *   p_channel: 已经发起发送的串口上下文。
+ * 返回值：
+ *   FSP_SUCCESS 表示等待完成；
+ *   FSP_ERR_ASSERTION 表示上下文为空。
+ */
 static fsp_err_t bsp_debug_uart_wait_tx_complete (bsp_debug_uart_channel_t * p_channel)
 {
     if (NULL == p_channel)
@@ -86,7 +127,6 @@ static fsp_err_t bsp_debug_uart_wait_tx_complete (bsp_debug_uart_channel_t * p_c
         return FSP_ERR_ASSERTION;
     }
 
-    /* 阻塞等待发送回调置位，形成简单可靠的同步发送语义。 */
     while (!p_channel->tx_done)
     {
         __NOP();
@@ -97,6 +137,17 @@ static fsp_err_t bsp_debug_uart_wait_tx_complete (bsp_debug_uart_channel_t * p_c
     return FSP_SUCCESS;
 }
 
+/*
+ * 内部函数作用：
+ *   阻塞等待一次接收完成。
+ * 调用关系：
+ *   仅由 BSP_DebugUart_ReadBlocking 调用。
+ * 参数说明：
+ *   p_channel: 已经发起接收的串口上下文。
+ * 返回值：
+ *   FSP_SUCCESS 表示等待完成；
+ *   FSP_ERR_ASSERTION 表示上下文为空。
+ */
 static fsp_err_t bsp_debug_uart_wait_rx_complete (bsp_debug_uart_channel_t * p_channel)
 {
     if (NULL == p_channel)
@@ -104,7 +155,6 @@ static fsp_err_t bsp_debug_uart_wait_rx_complete (bsp_debug_uart_channel_t * p_c
         return FSP_ERR_ASSERTION;
     }
 
-    /* 阻塞等待接收回调置位，适合没有 RTOS 的裸机轮询场景。 */
     while (!p_channel->rx_done)
     {
         __NOP();
@@ -115,24 +165,32 @@ static fsp_err_t bsp_debug_uart_wait_rx_complete (bsp_debug_uart_channel_t * p_c
     return FSP_SUCCESS;
 }
 
+/*
+ * 函数作用：
+ *   打开指定串口并初始化运行状态。
+ * 参数说明：
+ *   port: 逻辑串口号。
+ * 返回值：
+ *   FSP_SUCCESS 表示成功；
+ *   其他错误码表示端口非法或底层 open 失败。
+ * 调用方式：
+ *   由中间层在系统启动时调用，正常情况下不会频繁重复执行。
+ */
 fsp_err_t BSP_DebugUart_Init (bsp_debug_uart_port_t port)
 {
     bsp_debug_uart_channel_t * p_channel = bsp_debug_uart_get_channel(port);
     fsp_err_t                  err       = FSP_SUCCESS;
 
-    /* 空指针保护，防止非法端口传入。 */
     if (NULL == p_channel)
     {
         return FSP_ERR_ASSERTION;
     }
 
-    /* 已经打开就不重复 open，避免 FSP 返回 ALREADY_OPEN。 */
     if (p_channel->is_open)
     {
         return FSP_SUCCESS;
     }
 
-    /* 真正的硬件初始化仍然交给 FSP HAL，板级层只做统一收口。 */
     err = p_channel->p_instance->p_api->open(p_channel->p_instance->p_ctrl, p_channel->p_instance->p_cfg);
     if (FSP_SUCCESS == err)
     {
@@ -145,9 +203,19 @@ fsp_err_t BSP_DebugUart_Init (bsp_debug_uart_port_t port)
     return err;
 }
 
+/*
+ * 函数作用：
+ *   统一初始化 uart2 和 uart7。
+ * 参数说明：
+ *   无。
+ * 返回值：
+ *   FSP_SUCCESS 表示两个串口都初始化完成；
+ *   其他错误码表示某一步初始化失败。
+ * 调用方式：
+ *   当前工程上层统一调用这个函数，不需要分别初始化两个串口。
+ */
 fsp_err_t BSP_DebugUart_InitAll (void)
 {
-    /* 先开 uart2，再开 uart7，便于后续根据业务固定启动顺序。 */
     fsp_err_t err = BSP_DebugUart_Init(BSP_DEBUG_UART_PORT_2);
     if (FSP_SUCCESS != err)
     {
@@ -157,6 +225,17 @@ fsp_err_t BSP_DebugUart_InitAll (void)
     return BSP_DebugUart_Init(BSP_DEBUG_UART_PORT_7);
 }
 
+/*
+ * 函数作用：
+ *   关闭指定串口。
+ * 参数说明：
+ *   port: 需要关闭的逻辑串口号。
+ * 返回值：
+ *   FSP_SUCCESS 表示关闭成功或原本未打开；
+ *   其他错误码表示关闭失败。
+ * 调用方式：
+ *   当前工程一般不主动调用，仅为后续扩展预留。
+ */
 fsp_err_t BSP_DebugUart_Deinit (bsp_debug_uart_port_t port)
 {
     bsp_debug_uart_channel_t * p_channel = bsp_debug_uart_get_channel(port);
@@ -167,7 +246,6 @@ fsp_err_t BSP_DebugUart_Deinit (bsp_debug_uart_port_t port)
         return FSP_ERR_ASSERTION;
     }
 
-    /* 未打开时直接返回成功，保证上层调用更宽容。 */
     if (!p_channel->is_open)
     {
         return FSP_SUCCESS;
@@ -182,6 +260,17 @@ fsp_err_t BSP_DebugUart_Deinit (bsp_debug_uart_port_t port)
     return err;
 }
 
+/*
+ * 函数作用：
+ *   查询指定串口是否已经可用。
+ * 参数说明：
+ *   port: 需要查询的逻辑串口号。
+ * 返回值：
+ *   true 表示串口已打开；
+ *   false 表示串口未打开或端口非法。
+ * 调用方式：
+ *   用于上层做状态判断，不会改变任何运行状态。
+ */
 bool BSP_DebugUart_IsOpen (bsp_debug_uart_port_t port)
 {
     bsp_debug_uart_channel_t * p_channel = bsp_debug_uart_get_channel(port);
@@ -194,56 +283,88 @@ bool BSP_DebugUart_IsOpen (bsp_debug_uart_port_t port)
     return p_channel->is_open;
 }
 
+/*
+ * 函数作用：
+ *   发起一次非阻塞发送。
+ * 参数说明：
+ *   port: 目标串口号。
+ *   p_data: 待发送数据首地址。
+ *   length: 待发送字节数。
+ * 返回值：
+ *   FSP_SUCCESS 表示发送任务已成功提交；
+ *   其他错误码表示参数非法、串口未打开或底层写入失败。
+ * 调用方式：
+ *   如果需要同步等待完成，请改用 BSP_DebugUart_WriteBlocking。
+ */
 fsp_err_t BSP_DebugUart_Write (bsp_debug_uart_port_t port, uint8_t const * p_data, uint32_t length)
 {
     bsp_debug_uart_channel_t * p_channel = bsp_debug_uart_get_channel(port);
 
-    /* 数据指针和长度必须合法。 */
     if ((NULL == p_channel) || (NULL == p_data) || (0U == length))
     {
         return FSP_ERR_ASSERTION;
     }
 
-    /* 未初始化时禁止收发，避免隐藏错误。 */
     if (!p_channel->is_open)
     {
         return FSP_ERR_NOT_OPEN;
     }
 
-    /* 每次启动发送前清零完成标志，保证等待逻辑准确。 */
     p_channel->tx_done = false;
 
     return p_channel->p_instance->p_api->write(p_channel->p_instance->p_ctrl, p_data, length);
 }
 
+/*
+ * 函数作用：
+ *   发起一次非阻塞接收。
+ * 参数说明：
+ *   port: 来源串口号。
+ *   p_data: 接收缓冲区。
+ *   length: 期望接收的字节数。
+ * 返回值：
+ *   FSP_SUCCESS 表示接收任务已成功提交；
+ *   其他错误码表示参数非法、串口未打开或底层读启动失败。
+ * 调用方式：
+ *   如果需要同步等待完整数据，请改用 BSP_DebugUart_ReadBlocking。
+ */
 fsp_err_t BSP_DebugUart_Read (bsp_debug_uart_port_t port, uint8_t * p_data, uint32_t length)
 {
     bsp_debug_uart_channel_t * p_channel = bsp_debug_uart_get_channel(port);
 
-    /* 数据指针和长度必须合法。 */
     if ((NULL == p_channel) || (NULL == p_data) || (0U == length))
     {
         return FSP_ERR_ASSERTION;
     }
 
-    /* 未初始化时禁止收发，避免隐藏错误。 */
     if (!p_channel->is_open)
     {
         return FSP_ERR_NOT_OPEN;
     }
 
-    /* 每次启动接收前清零完成标志，保证等待逻辑准确。 */
     p_channel->rx_done = false;
 
     return p_channel->p_instance->p_api->read(p_channel->p_instance->p_ctrl, p_data, length);
 }
 
+/*
+ * 函数作用：
+ *   发送数据并同步等待发送完成。
+ * 参数说明：
+ *   port: 目标串口号。
+ *   p_data: 待发送数据首地址。
+ *   length: 数据长度。
+ * 返回值：
+ *   FSP_SUCCESS 表示已经发送完成；
+ *   其他错误码表示发起发送失败或等待上下文无效。
+ * 调用方式：
+ *   当前裸机工程中，命令字节发送和 CSV 文本发送都直接使用本函数。
+ */
 fsp_err_t BSP_DebugUart_WriteBlocking (bsp_debug_uart_port_t port, uint8_t const * p_data, uint32_t length)
 {
     bsp_debug_uart_channel_t * p_channel = bsp_debug_uart_get_channel(port);
     fsp_err_t                  err       = BSP_DebugUart_Write(port, p_data, length);
 
-    /* 先发起发送，再等待回调，形成阻塞式发送接口。 */
     if (FSP_SUCCESS != err)
     {
         return err;
@@ -252,12 +373,24 @@ fsp_err_t BSP_DebugUart_WriteBlocking (bsp_debug_uart_port_t port, uint8_t const
     return bsp_debug_uart_wait_tx_complete(p_channel);
 }
 
+/*
+ * 函数作用：
+ *   接收固定长度数据并同步等待接收完成。
+ * 参数说明：
+ *   port: 来源串口号。
+ *   p_data: 接收缓冲区。
+ *   length: 需要接收的字节数。
+ * 返回值：
+ *   FSP_SUCCESS 表示已经收满指定长度；
+ *   其他错误码表示发起接收失败或等待上下文无效。
+ * 调用方式：
+ *   协议层按长度收完整帧时通过本函数工作。
+ */
 fsp_err_t BSP_DebugUart_ReadBlocking (bsp_debug_uart_port_t port, uint8_t * p_data, uint32_t length)
 {
     bsp_debug_uart_channel_t * p_channel = bsp_debug_uart_get_channel(port);
     fsp_err_t                  err       = BSP_DebugUart_Read(port, p_data, length);
 
-    /* 先发起接收，再等待回调，形成阻塞式接收接口。 */
     if (FSP_SUCCESS != err)
     {
         return err;
@@ -266,20 +399,49 @@ fsp_err_t BSP_DebugUart_ReadBlocking (bsp_debug_uart_port_t port, uint8_t * p_da
     return bsp_debug_uart_wait_rx_complete(p_channel);
 }
 
+/*
+ * 函数作用：
+ *   阻塞读取单个字节。
+ * 参数说明：
+ *   port: 来源串口号。
+ *   p_byte: 单字节输出地址。
+ * 返回值：
+ *   FSP_SUCCESS 表示成功读到 1 个字节；
+ *   其他错误码表示底层接收失败。
+ * 调用方式：
+ *   协议同步、逐字节找帧头等场景通过本函数简化调用。
+ */
 fsp_err_t BSP_DebugUart_ReadByteBlocking (bsp_debug_uart_port_t port, uint8_t * p_byte)
 {
-    /* 字节级读取是中间层解析字符串、浮点数和协议头的基础能力。 */
     return BSP_DebugUart_ReadBlocking(port, p_byte, 1U);
 }
 
+/*
+ * 函数作用：
+ *   处理 uart2 的 FSP 回调事件。
+ * 参数说明：
+ *   p_args: FSP 回调参数。
+ * 返回值：
+ *   无。
+ * 调用方式：
+ *   不能手动调用，只能由 FSP 底层在 uart2 事件到来时自动触发。
+ */
 void uart2_callback (uart_callback_args_t * p_args)
 {
-    /* FSP 的 uart2 回调统一转交给板级层内部处理。 */
     bsp_debug_uart_handle_callback(BSP_DEBUG_UART_PORT_2, p_args);
 }
 
+/*
+ * 函数作用：
+ *   处理 uart7 的 FSP 回调事件。
+ * 参数说明：
+ *   p_args: FSP 回调参数。
+ * 返回值：
+ *   无。
+ * 调用方式：
+ *   不能手动调用，只能由 FSP 底层在 uart7 事件到来时自动触发。
+ */
 void uart7_callback (uart_callback_args_t * p_args)
 {
-    /* FSP 的 uart7 回调统一转交给板级层内部处理。 */
     bsp_debug_uart_handle_callback(BSP_DEBUG_UART_PORT_7, p_args);
 }

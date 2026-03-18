@@ -51,6 +51,7 @@ DEFAULT_OUT = os.path.join(SCRIPT_DIR, "generated", "gesture_model.h")
 
 
 def ensure_dependencies() -> None:
+    """在真正训练前检查依赖，缺失时直接给出安装提示。"""
     try:
         import pandas  # noqa: F401
         import sklearn  # noqa: F401
@@ -61,6 +62,12 @@ def ensure_dependencies() -> None:
 
 
 def load_dataset(csv_path: str) -> tuple[np.ndarray, np.ndarray]:
+    """
+    读取数据集并做基础校验：
+    1. 支持带表头或不带表头的 CSV；
+    2. 要求标签必须完整覆盖 0~8；
+    3. 当前固件命令映射固定依赖这 9 类标签。
+    """
     import pandas as pd
 
     if not os.path.exists(csv_path):
@@ -102,6 +109,7 @@ def load_dataset(csv_path: str) -> tuple[np.ndarray, np.ndarray]:
 
 
 def choose_n_splits(y: np.ndarray) -> int:
+    """根据最少类别样本数自动选择可用的交叉验证折数。"""
     counts = [int((y == label).sum()) for label in GESTURE_NAMES]
     min_count = min(counts)
     if min_count < 2:
@@ -111,6 +119,7 @@ def choose_n_splits(y: np.ndarray) -> int:
 
 
 def train_model(X: np.ndarray, y: np.ndarray):
+    """完成标准化、线性 SVM 训练和交叉验证评估。"""
     from sklearn.model_selection import StratifiedKFold, cross_val_score
     from sklearn.pipeline import Pipeline
     from sklearn.preprocessing import StandardScaler
@@ -140,12 +149,14 @@ def train_model(X: np.ndarray, y: np.ndarray):
 
 
 def format_c_1d(values: Iterable[float], name: str) -> str:
+    """把一维浮点数组转成 C 头文件里的静态常量定义。"""
     values_list = list(values)
     content = ", ".join(f"{value:.6f}f" for value in values_list)
     return f"static const float {name}[{len(values_list)}] = {{{content}}};"
 
 
 def format_c_2d(values: np.ndarray, name: str) -> str:
+    """把二维浮点数组转成 C 头文件里的静态常量定义。"""
     rows = []
     for row in values:
         rows.append("    {" + ", ".join(f"{value:.6f}f" for value in row) + "}")
@@ -159,6 +170,10 @@ def format_c_2d(values: np.ndarray, name: str) -> str:
 
 
 def export_header(scaler, svm, output_path: str, accuracy: float) -> None:
+    """
+    导出 C 权重文件。
+    固件侧只包含这一个文件，因此重新训练后直接替换即可。
+    """
     mean_ = scaler.mean_.astype(np.float32)
     scale_ = scaler.scale_.astype(np.float32)
     coef_ = svm.coef_.astype(np.float32)
@@ -261,6 +276,7 @@ def export_header(scaler, svm, output_path: str, accuracy: float) -> None:
 
 
 def parse_args() -> argparse.Namespace:
+    """解析命令行参数。"""
     parser = argparse.ArgumentParser(description="训练线性 SVM 并导出 C 权重文件")
     parser.add_argument("--data", default=DEFAULT_DATA, help="输入 CSV 文件路径")
     parser.add_argument("--out", default=DEFAULT_OUT, help="输出头文件路径")
@@ -268,6 +284,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """训练工具主流程。"""
     args = parse_args()
     ensure_dependencies()
 

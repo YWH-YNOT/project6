@@ -76,6 +76,8 @@ GESTURE_TARGET = 200
 
 @dataclass
 class CollectorState:
+    """采集线程和命令线程共享的运行状态。"""
+
     collecting: bool = False
     current_label: int = -1
     running: bool = True
@@ -88,12 +90,14 @@ class CollectorState:
 
 
 def ensure_parent_dir(path: str) -> None:
+    """按需创建输出文件所在目录。"""
     parent = os.path.dirname(path)
     if parent:
         os.makedirs(parent, exist_ok=True)
 
 
 def open_csv(csv_path: str) -> tuple[object, csv.writer]:
+    """打开 CSV 文件；如果是新文件，就先写表头。"""
     ensure_parent_dir(csv_path)
     need_header = not os.path.exists(csv_path)
     csv_file = open(csv_path, "a", newline="", encoding="utf-8")
@@ -105,6 +109,7 @@ def open_csv(csv_path: str) -> tuple[object, csv.writer]:
 
 
 def load_existing_counts(csv_path: str, state: CollectorState) -> None:
+    """启动时读取历史数据量，方便继续补采。"""
     if not os.path.exists(csv_path):
         return
 
@@ -124,6 +129,7 @@ def load_existing_counts(csv_path: str, state: CollectorState) -> None:
 
 
 def delete_rows(csv_path: str, label: int, state: CollectorState) -> None:
+    """删除某一类全部数据，并重写 CSV。"""
     if not os.path.exists(csv_path):
         print(f"[提示] 数据文件不存在: {csv_path}")
         return
@@ -157,6 +163,7 @@ def delete_rows(csv_path: str, label: int, state: CollectorState) -> None:
 
 
 def print_help() -> None:
+    """打印命令帮助。"""
     print("=" * 72)
     print("RA6M5 手势数据采集工具")
     print("=" * 72)
@@ -175,6 +182,7 @@ def print_help() -> None:
 
 
 def show_status(state: CollectorState) -> None:
+    """显示每一类当前已经采集到的帧数。"""
     with state.lock:
         counts_snapshot = dict(state.counts)
 
@@ -190,6 +198,7 @@ def show_status(state: CollectorState) -> None:
 
 
 def print_live(values: list[float]) -> None:
+    """按固定间隔打印一行实时特征，方便观察串口数据是否正常。"""
     summary = "  ".join(f"{name}:{value:7.2f}" for name, value in zip(FEATURE_NAMES, values))
     print(f"  [实时] {summary}")
     print(">>> ", end="", flush=True)
@@ -201,6 +210,11 @@ def serial_reader(
     writer: csv.writer,
     state: CollectorState,
 ) -> None:
+    """
+    串口后台线程：
+    1. 持续读取开发板输出的 10 列特征；
+    2. 当前处于采集状态时，再把数据写入 CSV。
+    """
     warned_bad_cols = False
 
     while state.running:
@@ -245,6 +259,7 @@ def serial_reader(
 
 
 def print_ready_hint(state: CollectorState) -> None:
+    """启动后等待 2 秒，给出一次串口就绪诊断。"""
     time.sleep(2)
 
     with state.lock:
@@ -267,6 +282,7 @@ def print_ready_hint(state: CollectorState) -> None:
 
 
 def start_collect(label: int, state: CollectorState) -> None:
+    """开始采集某一个标签。"""
     with state.lock:
         state.collecting = True
         state.current_label = label
@@ -279,6 +295,7 @@ def start_collect(label: int, state: CollectorState) -> None:
 
 
 def stop_collect(state: CollectorState) -> None:
+    """停止当前采集任务。"""
     with state.lock:
         label = state.current_label
         state.collecting = False
@@ -292,6 +309,7 @@ def stop_collect(state: CollectorState) -> None:
 
 
 def parse_args() -> argparse.Namespace:
+    """解析命令行参数。"""
     parser = argparse.ArgumentParser(description="RA6M5 手势数据采集工具")
     parser.add_argument("--port", required=True, help="串口号，例如 COM7")
     parser.add_argument("--baud", type=int, default=115200, help="串口波特率，默认 115200")
@@ -300,6 +318,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """工具主流程：打开串口、启动后台线程、处理用户命令。"""
     args = parse_args()
     state = CollectorState()
 

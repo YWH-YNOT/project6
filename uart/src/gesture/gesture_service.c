@@ -6,28 +6,10 @@
 #include <string.h>
 
 /*
- * 特征名字仅用于串口调试。
- * 与 STM32 发包顺序保持一致，便于联调时逐项核对。
- */
-static char const * const g_gesture_feature_names[GESTURE_SERVICE_FEATURE_COUNT] =
-{
-    "f0x",
-    "f0y",
-    "f1x",
-    "f1y",
-    "f2x",
-    "f2y",
-    "f3x",
-    "f3y",
-    "roll",
-    "pitch"
-};
-
-/*
- * 内部上下文：
- * 1. sampled_* 保存最近一次 100ms 采样得到的分类输入；
- * 2. history_cmd / confirm_count 复刻 STM32 端的发送过滤逻辑；
- * 3. last_classified_sample_count 用于避免定时器连续消费同一份旧样本。
+ * 内部上下文说明：
+ * 1. sampled_* 保存最近一次被 100ms 采样节拍选中的特征；
+ * 2. history_cmd 和 confirm_count 用来实现“同一命令连续出现两次才真正发送”的过滤逻辑；
+ * 3. last_classified_sample_count 用于避免 200ms 周期重复消费同一份旧样本。
  */
 typedef struct st_gesture_service_context
 {
@@ -47,12 +29,34 @@ typedef struct st_gesture_service_context
 
 static gesture_service_context_t g_gesture_service_context;
 
+/*
+ * 内部函数作用：
+ *   判断 now 与 last 之间是否已经走过指定毫秒周期，自动兼容无符号毫秒计数回绕。
+ * 调用关系：
+ *   仅用于 100ms 采样节拍判断。
+ * 参数说明：
+ *   now: 当前时间戳。
+ *   last: 上一次采样时间戳。
+ *   period_ms: 需要比较的周期。
+ * 返回值：
+ *   true 表示已经到期；
+ *   false 表示尚未到期。
+ */
 static bool gesture_service_is_elapsed (uint32_t now, uint32_t last, uint32_t period_ms)
 {
-    /* 使用无符号减法，天然支持 32 位毫秒计数回绕。 */
     return (now - last) >= period_ms;
 }
 
+/*
+ * 内部函数作用：
+ *   把输出结果结构体重置到干净初始状态。
+ * 调用关系：
+ *   每次业务接口开始处理前都会先调用。
+ * 参数说明：
+ *   p_result: 待重置的结果结构体。
+ * 返回值：
+ *   无。
+ */
 static void gesture_service_reset_result (gesture_service_result_t * p_result)
 {
     if (NULL == p_result)
@@ -65,6 +69,16 @@ static void gesture_service_reset_result (gesture_service_result_t * p_result)
     p_result->cmd   = GESTURE_CMD_NONE;
 }
 
+/*
+ * 内部函数作用：
+ *   把当前协议帧复制进内部“最新样本缓存”。
+ * 调用关系：
+ *   当 100ms 采样条件满足时由 GestureService_ProcessFrame 调用。
+ * 参数说明：
+ *   p_frame: 当前被选中的协议帧。
+ * 返回值：
+ *   无。
+ */
 static void gesture_service_copy_sample_from_frame (glove_frame_t const * p_frame)
 {
     g_gesture_service_context.sampled_seq         = p_frame->seq;
@@ -81,6 +95,16 @@ static void gesture_service_copy_sample_from_frame (glove_frame_t const * p_fram
                   sizeof(g_gesture_service_context.sampled_feature));
 }
 
+/*
+ * 内部函数作用：
+ *   把内部缓存里的当前样本信息填充到输出结果结构体。
+ * 调用关系：
+ *   在采样更新或分类输出时调用，让应用层可以看到当前参与处理的样本。
+ * 参数说明：
+ *   p_result: 输出结果结构体。
+ * 返回值：
+ *   无。
+ */
 static void gesture_service_fill_result_from_sample (gesture_service_result_t * p_result)
 {
     p_result->sample_seq     = g_gesture_service_context.sampled_seq;
@@ -99,11 +123,21 @@ static void gesture_service_fill_result_from_sample (gesture_service_result_t * 
                   sizeof(p_result->feature));
 }
 
+/*
+ * 内部函数作用：
+ *   把模型输出标签映射成对外命令字节。
+ * 调用关系：
+ *   仅在分类完成后调用。
+ * 参数说明：
+ *   label: SVM 输出的类别标签。
+ * 返回值：
+ *   返回映射后的命令字节；如果标签非法，则返回 GESTURE_CMD_NONE。
+ */
 static uint8_t gesture_service_map_command (uint8_t label)
 {
     /*
-     * 这一张映射表严格沿用 STM32 control.c 里的 gr_cmd_map。
-     * 先保证迁移后一致，再谈后续手势语义优化。
+     * 映射表沿用原 STM32 版本的 gr_cmd_map。
+     * 这样迁移到 RA6M5 后，对外发送的控制语义不发生变化。
      */
     static const uint8_t g_cmd_map[GM_N_CLASSES] =
     {
@@ -126,21 +160,31 @@ static uint8_t gesture_service_map_command (uint8_t label)
     return g_cmd_map[label];
 }
 
+/*
+ * 内部函数作用：
+ *   对本次分类得到的命令执行发送过滤。
+ * 调用关系：
+ *   仅在完成分类后调用。
+ * 参数说明：
+ *   p_result: 输出结果结构体，同时会被写入过滤后的 send_ready、send_cmd 等状态。
+ * 返回值：
+ *   无。
+ * 过滤逻辑说明：
+ *   1. 如果命令是 0x02 或 0x00，直接压制，不对外发送；
+ *   2. 如果命令与上一次候选命令相同，则确认次数加 1；
+ *   3. 只有同一候选命令连续达到 2 次，才真正允许发送。
+ */
 static void gesture_service_apply_send_filter (gesture_service_result_t * p_result)
 {
     uint8_t cmd = p_result->cmd;
 
-    /*
-     * 0x02 是用户明确要求屏蔽的公共指令。
-     * 0x00 则表示本次没有有效动作，也不应继续向下派发。
-     */
     if ((GESTURE_CMD_COMMON == cmd) || (GESTURE_CMD_NONE == cmd))
     {
         p_result->suppress_common = (GESTURE_CMD_COMMON == cmd);
-        g_gesture_service_context.history_cmd  = GESTURE_CMD_NONE;
+        g_gesture_service_context.history_cmd   = GESTURE_CMD_NONE;
         g_gesture_service_context.confirm_count = 0U;
-        p_result->history_cmd                  = GESTURE_CMD_NONE;
-        p_result->confirm_count               = 0U;
+        p_result->history_cmd                   = GESTURE_CMD_NONE;
+        p_result->confirm_count                 = 0U;
         return;
     }
 
@@ -172,95 +216,33 @@ static void gesture_service_apply_send_filter (gesture_service_result_t * p_resu
     p_result->confirm_count = g_gesture_service_context.confirm_count;
 }
 
-static char const * gesture_service_get_label_name (uint8_t label)
-{
-    if (label >= GM_N_CLASSES)
-    {
-        return "NONE";
-    }
-
-    return gm_labels[label];
-}
-
-static uint32_t gesture_service_write_unsigned (uint32_t value, char * p_buffer)
-{
-    char     temp[10];
-    uint32_t count = 0U;
-    uint32_t index = 0U;
-
-    if (0U == value)
-    {
-        p_buffer[0] = '0';
-        return 1U;
-    }
-
-    while (value > 0U)
-    {
-        temp[count++] = (char) ('0' + (value % 10U));
-        value /= 10U;
-    }
-
-    while (count > 0U)
-    {
-        p_buffer[index++] = temp[--count];
-    }
-
-    return index;
-}
-
-static fsp_err_t gesture_service_send_text (mid_uart_port_t tx_port, char const * p_text)
-{
-    if (NULL == p_text)
-    {
-        return FSP_ERR_ASSERTION;
-    }
-
-    return MID_Uart_SendString(tx_port, p_text);
-}
-
-static fsp_err_t gesture_service_send_uint32 (mid_uart_port_t tx_port, uint32_t value)
-{
-    char     buffer[11];
-    uint32_t length = gesture_service_write_unsigned(value, buffer);
-
-    return MID_Uart_SendBytes(tx_port, (uint8_t const *) buffer, length);
-}
-
-static fsp_err_t gesture_service_send_hex_nibble (mid_uart_port_t tx_port, uint8_t value)
-{
-    uint8_t ascii_code;
-    char    ch;
-
-    if (value < 10U)
-    {
-        ascii_code = (uint8_t) ('0' + value);
-    }
-    else
-    {
-        ascii_code = (uint8_t) ('A' + (value - 10U));
-    }
-
-    ch = (char) ascii_code;
-
-    return MID_Uart_SendBytes(tx_port, (uint8_t const *) &ch, 1U);
-}
-
-static fsp_err_t gesture_service_send_hex8 (mid_uart_port_t tx_port, uint8_t value)
-{
-    fsp_err_t err = gesture_service_send_hex_nibble(tx_port, (uint8_t) ((value >> 4) & 0x0FU));
-    if (FSP_SUCCESS != err)
-    {
-        return err;
-    }
-
-    return gesture_service_send_hex_nibble(tx_port, (uint8_t) (value & 0x0FU));
-}
-
+/*
+ * 函数作用：
+ *   清空识别业务层内部状态。
+ * 参数说明：
+ *   无。
+ * 返回值：
+ *   无。
+ * 调用方式：
+ *   系统启动和模式切换时调用，相当于重新开始一次识别流程。
+ */
 void GestureService_Init (void)
 {
     (void) memset(&g_gesture_service_context, 0, sizeof(g_gesture_service_context));
 }
 
+/*
+ * 函数作用：
+ *   处理一帧新数据，并在满足 100ms 周期时刷新样本缓存。
+ * 参数说明：
+ *   p_frame: 当前协议帧。
+ *   p_result: 输出结果结构体。
+ * 返回值：
+ *   FSP_SUCCESS 表示处理完成；
+ *   FSP_ERR_ASSERTION 表示输入参数为空。
+ * 调用方式：
+ *   每收到一帧合法协议数据后调用一次；它只负责更新样本，不负责执行分类。
+ */
 fsp_err_t GestureService_ProcessFrame (glove_frame_t const * p_frame, gesture_service_result_t * p_result)
 {
     if ((NULL == p_frame) || (NULL == p_result))
@@ -271,8 +253,8 @@ fsp_err_t GestureService_ProcessFrame (glove_frame_t const * p_frame, gesture_se
     gesture_service_reset_result(p_result);
 
     /*
-     * 只有 data_valid 置位时，才允许这帧进入样本缓存。
-     * 这样可以避免异常帧、占位帧把分类输入污染掉。
+     * 只有协议层已经确认 data_valid 的帧，才允许进入样本缓存。
+     * 这样可以避免异常帧、占位帧和无效状态污染分类输入。
      */
     if (0U == (p_frame->status & GLOVE_FRAME_STATUS_DATA_VALID))
     {
@@ -293,6 +275,17 @@ fsp_err_t GestureService_ProcessFrame (glove_frame_t const * p_frame, gesture_se
     return FSP_SUCCESS;
 }
 
+/*
+ * 函数作用：
+ *   在 200ms 调度周期到来时，使用当前最新样本执行一次 SVM 分类和命令过滤。
+ * 参数说明：
+ *   p_result: 输出结果结构体。
+ * 返回值：
+ *   FSP_SUCCESS 表示本次周期已处理完成；
+ *   FSP_ERR_ASSERTION 表示结果指针为空。
+ * 调用方式：
+ *   只有当 MID_DispatchTimer_TryConsumeDispatchFlag 返回 true 时，应用层才应该调用本函数。
+ */
 fsp_err_t GestureService_RunClassifyCycle (gesture_service_result_t * p_result)
 {
     uint8_t label;
@@ -310,8 +303,8 @@ fsp_err_t GestureService_RunClassifyCycle (gesture_service_result_t * p_result)
     }
 
     /*
-     * 如果 200ms 定时器先于 100ms 新样本到来，就直接跳过本次周期，
-     * 避免反复对同一份旧数据重复分类与发指令。
+     * 如果 200ms 周期先到了，但 100ms 没有选出新样本，就跳过本轮分类，
+     * 避免同一份旧样本被反复重复分类。
      */
     if (g_gesture_service_context.sample_count == g_gesture_service_context.last_classified_sample_count)
     {
@@ -332,222 +325,4 @@ fsp_err_t GestureService_RunClassifyCycle (gesture_service_result_t * p_result)
     gesture_service_apply_send_filter(p_result);
 
     return FSP_SUCCESS;
-}
-
-fsp_err_t GestureService_PrintResult (mid_uart_port_t tx_port, gesture_service_result_t const * p_result)
-{
-    fsp_err_t err;
-
-    if (NULL == p_result)
-    {
-        return FSP_ERR_ASSERTION;
-    }
-
-    if (!p_result->classify_ready)
-    {
-        return FSP_ERR_INVALID_ARGUMENT;
-    }
-
-    err = gesture_service_send_text(tx_port, "gesture seq=");
-    if (FSP_SUCCESS != err)
-    {
-        return err;
-    }
-
-    err = gesture_service_send_uint32(tx_port, p_result->sample_seq);
-    if (FSP_SUCCESS != err)
-    {
-        return err;
-    }
-
-    err = gesture_service_send_text(tx_port, " tick=");
-    if (FSP_SUCCESS != err)
-    {
-        return err;
-    }
-
-    err = gesture_service_send_uint32(tx_port, p_result->sample_tick_ms);
-    if (FSP_SUCCESS != err)
-    {
-        return err;
-    }
-
-    err = gesture_service_send_text(tx_port, " status=0x");
-    if (FSP_SUCCESS != err)
-    {
-        return err;
-    }
-
-    err = gesture_service_send_hex8(tx_port, p_result->sample_status);
-    if (FSP_SUCCESS != err)
-    {
-        return err;
-    }
-
-    err = gesture_service_send_text(tx_port, " sample=");
-    if (FSP_SUCCESS != err)
-    {
-        return err;
-    }
-
-    err = gesture_service_send_uint32(tx_port, p_result->sample_count);
-    if (FSP_SUCCESS != err)
-    {
-        return err;
-    }
-
-    err = gesture_service_send_text(tx_port, " classify=");
-    if (FSP_SUCCESS != err)
-    {
-        return err;
-    }
-
-    err = gesture_service_send_uint32(tx_port, p_result->classify_count);
-    if (FSP_SUCCESS != err)
-    {
-        return err;
-    }
-
-    err = gesture_service_send_text(tx_port, " label=");
-    if (FSP_SUCCESS != err)
-    {
-        return err;
-    }
-
-    err = gesture_service_send_uint32(tx_port, p_result->label);
-    if (FSP_SUCCESS != err)
-    {
-        return err;
-    }
-
-    err = gesture_service_send_text(tx_port, "(");
-    if (FSP_SUCCESS != err)
-    {
-        return err;
-    }
-
-    err = gesture_service_send_text(tx_port, gesture_service_get_label_name(p_result->label));
-    if (FSP_SUCCESS != err)
-    {
-        return err;
-    }
-
-    err = gesture_service_send_text(tx_port, ") cmd=0x");
-    if (FSP_SUCCESS != err)
-    {
-        return err;
-    }
-
-    err = gesture_service_send_hex8(tx_port, p_result->cmd);
-    if (FSP_SUCCESS != err)
-    {
-        return err;
-    }
-
-    err = gesture_service_send_text(tx_port, " hist=0x");
-    if (FSP_SUCCESS != err)
-    {
-        return err;
-    }
-
-    err = gesture_service_send_hex8(tx_port, p_result->history_cmd);
-    if (FSP_SUCCESS != err)
-    {
-        return err;
-    }
-
-    err = gesture_service_send_text(tx_port, " confirm=");
-    if (FSP_SUCCESS != err)
-    {
-        return err;
-    }
-
-    err = gesture_service_send_uint32(tx_port, p_result->confirm_count);
-    if (FSP_SUCCESS != err)
-    {
-        return err;
-    }
-
-    err = gesture_service_send_text(tx_port, " tx=");
-    if (FSP_SUCCESS != err)
-    {
-        return err;
-    }
-
-    if (p_result->send_ready)
-    {
-        err = gesture_service_send_text(tx_port, "0x");
-        if (FSP_SUCCESS != err)
-        {
-            return err;
-        }
-
-        err = gesture_service_send_hex8(tx_port, p_result->send_cmd);
-        if (FSP_SUCCESS != err)
-        {
-            return err;
-        }
-    }
-    else if (p_result->suppress_common)
-    {
-        err = gesture_service_send_text(tx_port, "skip(0x02)");
-        if (FSP_SUCCESS != err)
-        {
-            return err;
-        }
-    }
-    else if (p_result->send_hold)
-    {
-        err = gesture_service_send_text(tx_port, "hold");
-        if (FSP_SUCCESS != err)
-        {
-            return err;
-        }
-    }
-    else
-    {
-        err = gesture_service_send_text(tx_port, "skip");
-        if (FSP_SUCCESS != err)
-        {
-            return err;
-        }
-    }
-
-    err = gesture_service_send_text(tx_port, "\r\nfeat=[");
-    if (FSP_SUCCESS != err)
-    {
-        return err;
-    }
-
-    for (uint32_t i = 0U; i < GESTURE_SERVICE_FEATURE_COUNT; i++)
-    {
-        err = gesture_service_send_text(tx_port, g_gesture_feature_names[i]);
-        if (FSP_SUCCESS != err)
-        {
-            return err;
-        }
-
-        err = gesture_service_send_text(tx_port, "=");
-        if (FSP_SUCCESS != err)
-        {
-            return err;
-        }
-
-        err = MID_Uart_SendFloatText(tx_port, p_result->feature[i], 2U, false);
-        if (FSP_SUCCESS != err)
-        {
-            return err;
-        }
-
-        if (i < (GESTURE_SERVICE_FEATURE_COUNT - 1U))
-        {
-            err = gesture_service_send_text(tx_port, ", ");
-            if (FSP_SUCCESS != err)
-            {
-                return err;
-            }
-        }
-    }
-
-    return gesture_service_send_text(tx_port, "]\r\n\r\n");
 }
