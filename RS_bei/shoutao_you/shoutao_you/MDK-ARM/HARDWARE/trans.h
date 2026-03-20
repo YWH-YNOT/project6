@@ -31,6 +31,11 @@
  * bit4：mode1_flag
  * bit5：mode2_flag
  * bit6：mode3_flag
+ *
+ * 额外说明：
+ * 1. RA6M5 业务层当前不会再把 bit1 / bit2 映射成离散控制命令；
+ * 2. 迁移后的 0x19 只允许由“手势三”的 SVM 分类结果产生；
+ * 3. 因此迁移模式下不能绕开协议，直接往 huart6 插入离散按键命令。
  */
 #define GLOVE_STATUS_DATA_VALID      (1U << 0)
 #define GLOVE_STATUS_KEY1_PRESSED    (1U << 1)

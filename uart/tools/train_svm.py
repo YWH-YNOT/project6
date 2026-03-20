@@ -3,11 +3,14 @@ train_svm.py
 ============
 读取 `collect_data.py` 采集得到的 CSV，训练线性 SVM，并导出 C 头文件。
 
-导出结果默认写入：
-  uart/tools/generated/gesture_model.h
+当前工具链已经升级为 10 类标签：
+0~8 保持原有手势定义不变，`label=9` 对应 `three`。
 
-固件侧已经通过 `uart/src/gesture/gesture_model.h` 直接包含该文件，
-所以重新训练后只需要替换这一个权重文件，再重新编译工程即可。
+导出结果默认会同时写入：
+1. `uart/tools/generated/gesture_model.h`
+2. `uart/src/gesture/gesture_model.h`
+
+这样重新训练后不需要再手工复制模型头文件，重新编译工程即可生效。
 """
 
 from __future__ import annotations
@@ -18,36 +21,18 @@ import sys
 from typing import Iterable
 
 import numpy as np
+from tool_config import (
+    DEFAULT_DATASET_PATH,
+    DEFAULT_FIRMWARE_MODEL_PATH,
+    DEFAULT_GENERATED_MODEL_PATH,
+    FEATURE_NAMES,
+    GESTURE_LABELS,
+)
 
 
-FEATURE_NAMES = [
-    "f0x",
-    "f0y",
-    "f1x",
-    "f1y",
-    "f2x",
-    "f2y",
-    "f3x",
-    "f3y",
-    "roll",
-    "pitch",
-]
-
-GESTURE_NAMES = {
-    0: "fist",
-    1: "open",
-    2: "one",
-    3: "two",
-    4: "rock",
-    5: "up",
-    6: "down",
-    7: "left",
-    8: "right",
-}
-
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_DATA = os.path.join(SCRIPT_DIR, "data", "gesture_data.csv")
-DEFAULT_OUT = os.path.join(SCRIPT_DIR, "generated", "gesture_model.h")
+DEFAULT_DATA = DEFAULT_DATASET_PATH
+DEFAULT_OUT = DEFAULT_GENERATED_MODEL_PATH
+DEFAULT_FIRMWARE_OUT = DEFAULT_FIRMWARE_MODEL_PATH
 
 
 def ensure_dependencies() -> None:
@@ -65,8 +50,8 @@ def load_dataset(csv_path: str) -> tuple[np.ndarray, np.ndarray]:
     """
     读取数据集并做基础校验：
     1. 支持带表头或不带表头的 CSV；
-    2. 要求标签必须完整覆盖 0~8；
-    3. 当前固件命令映射固定依赖这 9 类标签。
+    2. 要求标签必须完整覆盖 0~9；
+    3. 旧的 0~8 类历史数据会原样保留，只需要额外补齐 label=9 的 three 数据。
     """
     import pandas as pd
 
@@ -92,25 +77,25 @@ def load_dataset(csv_path: str) -> tuple[np.ndarray, np.ndarray]:
     X = df[FEATURE_NAMES].astype(np.float32).to_numpy()
     y = df["label"].astype(int).to_numpy()
 
-    expected_labels = list(GESTURE_NAMES.keys())
+    expected_labels = list(GESTURE_LABELS.keys())
     actual_labels = sorted(set(y.tolist()))
     if actual_labels != expected_labels:
-        print("[错误] 当前工程的命令映射固定使用 9 类标签 0~8。")
+        print("[错误] 当前工程的命令映射已经升级为 10 类标签 0~9。")
         print(f"       实际检测到的标签: {actual_labels}")
-        print("       请补齐 fist/open/one/two/rock/up/down/left/right 全部类别后再训练。")
+        print("       旧数据会继续保留，请在同一份 CSV 中补齐 three(label=9) 后再训练。")
         sys.exit(1)
 
     print(f"[数据] 共 {len(X)} 帧，特征维度 {len(FEATURE_NAMES)}。")
     for label in expected_labels:
         count = int((y == label).sum())
-        print(f"  [{label}] {GESTURE_NAMES[label]:>5s}: {count:4d} 帧")
+        print(f"  [{label}] {GESTURE_LABELS[label]:>5s}: {count:4d} 帧")
 
     return X, y
 
 
 def choose_n_splits(y: np.ndarray) -> int:
     """根据最少类别样本数自动选择可用的交叉验证折数。"""
-    counts = [int((y == label).sum()) for label in GESTURE_NAMES]
+    counts = [int((y == label).sum()) for label in GESTURE_LABELS]
     min_count = min(counts)
     if min_count < 2:
         print("[错误] 每一类至少需要 2 帧数据，当前最少类别不足。")
@@ -169,26 +154,42 @@ def format_c_2d(values: np.ndarray, name: str) -> str:
     )
 
 
-def export_header(scaler, svm, output_path: str, accuracy: float) -> None:
+def write_header_file(output_path: str, header_text: str) -> None:
+    """把生成好的模型头文件文本写到指定路径。"""
+    output_dir = os.path.dirname(output_path)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+
+    with open(output_path, "w", encoding="utf-8") as header_file:
+        header_file.write(header_text)
+
+    print(f"[导出] 已生成模型头文件: {os.path.abspath(output_path)}")
+
+
+def export_header(
+    scaler,
+    svm,
+    output_path: str,
+    firmware_output_path: str | None,
+    accuracy: float,
+) -> None:
     """
     导出 C 权重文件。
-    固件侧只包含这一个文件，因此重新训练后直接替换即可。
+    训练完成后会同时更新：
+    1. `uart/tools/generated/gesture_model.h`，方便留档和比对；
+    2. `uart/src/gesture/gesture_model.h`，保证固件编译时真正拿到最新模型。
     """
     mean_ = scaler.mean_.astype(np.float32)
     scale_ = scaler.scale_.astype(np.float32)
     coef_ = svm.coef_.astype(np.float32)
     bias_ = svm.intercept_.astype(np.float32)
 
-    output_dir = os.path.dirname(output_path)
-    if output_dir:
-        os.makedirs(output_dir, exist_ok=True)
-
     lines = [
         "/**",
         " * gesture_model.h",
         " * ------------------------------------------------------------",
         " * 由 uart/tools/train_svm.py 自动生成。",
-        " * 重新训练后，只需要替换本文件并重新编译 `uart` 工程即可。",
+        " * 重新训练后，脚本会同步覆盖 tools/generated 和 src/gesture 两份模型头文件。",
         f" * 交叉验证平均准确率: {accuracy * 100:.2f}%",
         " */",
         "#ifndef GESTURE_MODEL_H",
@@ -198,7 +199,7 @@ def export_header(scaler, svm, output_path: str, accuracy: float) -> None:
         "#include <stdint.h>",
         "",
         f"#define GM_N_FEATURES {len(FEATURE_NAMES)}",
-        f"#define GM_N_CLASSES {len(GESTURE_NAMES)}",
+        f"#define GM_N_CLASSES {len(GESTURE_LABELS)}",
         "#define GM_INVALID_LABEL 0xFFU",
         "",
         "/* StandardScaler 参数 */",
@@ -214,8 +215,8 @@ def export_header(scaler, svm, output_path: str, accuracy: float) -> None:
         "{",
     ]
 
-    for label in range(len(GESTURE_NAMES)):
-        lines.append(f'    "{GESTURE_NAMES[label]}",')
+    for label in range(len(GESTURE_LABELS)):
+        lines.append(f'    "{GESTURE_LABELS[label]}",')
 
     lines.extend(
         [
@@ -268,11 +269,19 @@ def export_header(scaler, svm, output_path: str, accuracy: float) -> None:
         ]
     )
 
-    with open(output_path, "w", encoding="utf-8") as header_file:
-        header_file.write("\n".join(lines))
+    header_text = "\n".join(lines)
+    output_paths = [output_path]
 
-    print(f"\n[导出] 已生成权重头文件: {os.path.abspath(output_path)}")
-    print("       固件侧会直接包含该文件，无需再手工修改 `uart/src` 下的数组。")
+    if firmware_output_path:
+        if os.path.abspath(firmware_output_path) not in {os.path.abspath(output_path)}:
+            output_paths.append(firmware_output_path)
+
+    print()
+    for target_path in output_paths:
+        write_header_file(target_path, header_text)
+
+    if firmware_output_path:
+        print("       固件实际使用的模型头文件也已同步更新，无需再手工复制。")
 
 
 def parse_args() -> argparse.Namespace:
@@ -280,17 +289,29 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="训练线性 SVM 并导出 C 权重文件")
     parser.add_argument("--data", default=DEFAULT_DATA, help="输入 CSV 文件路径")
     parser.add_argument("--out", default=DEFAULT_OUT, help="输出头文件路径")
+    parser.add_argument(
+        "--firmware-out",
+        default=DEFAULT_FIRMWARE_OUT,
+        help="同步写入固件工程使用的模型头文件路径；传空字符串则只生成 --out",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     """训练工具主流程。"""
     args = parse_args()
+    firmware_out = args.firmware_out.strip()
     ensure_dependencies()
 
     X, y = load_dataset(args.data)
     scaler, svm, accuracy = train_model(X, y)
-    export_header(scaler, svm, args.out, accuracy)
+    export_header(
+        scaler=scaler,
+        svm=svm,
+        output_path=args.out,
+        firmware_output_path=(firmware_out if firmware_out else None),
+        accuracy=accuracy,
+    )
 
 
 if __name__ == "__main__":

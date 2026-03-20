@@ -3,6 +3,11 @@ collect_data.py
 ================
 从 RA6M5 的 `uart7` 采集 10 维手势特征，并在 PC 本地保存为带标签的 CSV。
 
+本工具默认采用“追加写入”策略：
+1. 旧的 0~8 类历史数据会完整保留；
+2. 新增“手势三”时，只需要继续往同一份 `gesture_data.csv` 里追加 `label=9` 的样本；
+3. 新增类别命令为 `T / THREE / G9`。
+
 板端配合方式：
 1. `uart` 工程正常运行后，按一次 SW2，进入采集模式；
 2. 采集模式下 LED 常亮，`uart7` 连续输出 10 列 CSV：
@@ -24,54 +29,15 @@ import time
 from dataclasses import dataclass, field
 
 import serial
-
-
-FEATURE_NAMES = [
-    "f0x",
-    "f0y",
-    "f1x",
-    "f1y",
-    "f2x",
-    "f2y",
-    "f3x",
-    "f3y",
-    "roll",
-    "pitch",
-]
-COLUMNS = FEATURE_NAMES + ["label"]
-
-GESTURE_LABELS = {
-    0: "fist",
-    1: "open",
-    2: "one",
-    3: "two",
-    4: "rock",
-    5: "up",
-    6: "down",
-    7: "left",
-    8: "right",
-}
-
-COMMAND_MAP = {
-    "G0": 0,
-    "G1": 1,
-    "G2": 2,
-    "G3": 3,
-    "G4": 4,
-    "U": 5,
-    "UP": 5,
-    "D": 6,
-    "DOWN": 6,
-    "L": 7,
-    "LEFT": 7,
-    "R": 8,
-    "RIGHT": 8,
-}
-
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_OUTPUT = os.path.join(SCRIPT_DIR, "data", "gesture_data.csv")
-DISPLAY_INTERVAL = 20
-GESTURE_TARGET = 200
+from tool_config import (
+    CSV_COLUMNS,
+    DATASET_TARGET_FRAMES,
+    DEFAULT_DATASET_PATH,
+    FEATURE_NAMES,
+    GESTURE_COLLECTION_COMMANDS,
+    GESTURE_LABELS,
+    LIVE_DISPLAY_INTERVAL,
+)
 
 
 @dataclass
@@ -103,7 +69,7 @@ def open_csv(csv_path: str) -> tuple[object, csv.writer]:
     csv_file = open(csv_path, "a", newline="", encoding="utf-8")
     writer = csv.writer(csv_file)
     if need_header:
-        writer.writerow(COLUMNS)
+        writer.writerow(CSV_COLUMNS)
         csv_file.flush()
     return csv_file, writer
 
@@ -172,12 +138,14 @@ def print_help() -> None:
     print("采集命令：")
     print("  G0~G4        采集 fist / open / one / two / rock")
     print("  U/D/L/R      采集 up / down / left / right")
+    print("  T / THREE    采集 three（也支持 G9）")
     print("  OVER         停止当前采集")
     print("  STATUS       查看每一类当前已采集数量")
-    print("  DELETE <n>   删除某一类全部数据")
+    print("  DELETE <n>   删除某一类全部数据，支持 0~9")
     print("  QUIT / Q     保存并退出")
     print()
-    print(f"建议每一类至少采集 {GESTURE_TARGET} 帧。")
+    print("说明：默认对已有 CSV 做追加写入，原来 0~8 类历史数据会完整保留。")
+    print(f"建议每一类至少采集 {DATASET_TARGET_FRAMES} 帧。")
     print("=" * 72)
 
 
@@ -190,7 +158,7 @@ def show_status(state: CollectorState) -> None:
     print("当前数据统计：")
     for label, name in GESTURE_LABELS.items():
         count = counts_snapshot[label]
-        remain = max(0, GESTURE_TARGET - count)
+        remain = max(0, DATASET_TARGET_FRAMES - count)
         tip = "已达标" if remain == 0 else f"还差 {remain} 帧"
         print(f"  [{label}] {name:>5s}: {count:4d} 帧  {tip}")
     print(f"  合计: {sum(counts_snapshot.values())} 帧")
@@ -254,7 +222,7 @@ def serial_reader(
                 state.counts[state.current_label] += 1
                 state.frame_counter += 1
 
-                if state.frame_counter % DISPLAY_INTERVAL == 0:
+                if state.frame_counter % LIVE_DISPLAY_INTERVAL == 0:
                     print_live(values)
 
 
@@ -313,7 +281,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="RA6M5 手势数据采集工具")
     parser.add_argument("--port", required=True, help="串口号，例如 COM7")
     parser.add_argument("--baud", type=int, default=115200, help="串口波特率，默认 115200")
-    parser.add_argument("--out", default=DEFAULT_OUTPUT, help="输出 CSV 文件路径")
+    parser.add_argument("--out", default=DEFAULT_DATASET_PATH, help="输出 CSV 文件路径")
     return parser.parse_args()
 
 
@@ -333,6 +301,7 @@ def main() -> None:
 
     print(f"[串口] 已连接 {args.port} @ {args.baud}")
     print(f"[文件] 数据将保存到: {os.path.abspath(args.out)}")
+    print("[模式] 当前为追加采集模式，不会覆盖原有 0~8 类历史样本。")
 
     reader_thread = threading.Thread(
         target=serial_reader,
@@ -358,8 +327,8 @@ def main() -> None:
             parts = command.split()
             op = parts[0].upper()
 
-            if op in COMMAND_MAP:
-                start_collect(COMMAND_MAP[op], state)
+            if op in GESTURE_COLLECTION_COMMANDS:
+                start_collect(GESTURE_COLLECTION_COMMANDS[op], state)
                 continue
 
             if op == "OVER":
@@ -373,7 +342,7 @@ def main() -> None:
 
             if op == "DELETE":
                 if len(parts) < 2:
-                    print("[提示] 用法: DELETE <0~8>")
+                    print("[提示] 用法: DELETE <0~9>")
                     continue
 
                 try:
@@ -383,7 +352,7 @@ def main() -> None:
                     continue
 
                 if label not in GESTURE_LABELS:
-                    print("[错误] 标签范围必须是 0~8。")
+                    print("[错误] 标签范围必须是 0~9。")
                     continue
 
                 confirm = input(f"确认删除 [{label}] {GESTURE_LABELS[label]} 的全部数据？(y/n) ").strip().lower()
@@ -398,7 +367,7 @@ def main() -> None:
             if op in ("QUIT", "Q"):
                 break
 
-            print("[未知命令] 可用命令: G0~G4, U/D/L/R, OVER, STATUS, DELETE <n>, QUIT")
+            print("[未知命令] 可用命令: G0~G4, U/D/L/R, T/THREE/G9, OVER, STATUS, DELETE <n>, QUIT")
 
     finally:
         state.running = False

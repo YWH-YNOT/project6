@@ -1,5 +1,7 @@
 #include "hal_data.h"
 
+#include <stddef.h>
+
 FSP_CPP_HEADER
 void R_BSP_WarmStart(bsp_warm_start_event_t event);
 FSP_CPP_FOOTER
@@ -11,6 +13,10 @@ FSP_CPP_FOOTER
 #include "key/mid_key_event.h"
 #include "led/bsp_led.h"
 #include "timer/mid_dispatch_timer.h"
+
+#if GESTURE_SERVICE_CLASSIFY_PERIOD_MS != MID_DISPATCH_TIMER_CLASSIFY_PERIOD_MS
+#error "手势业务层分类周期必须与定时器中间层分类节拍保持一致"
+#endif
 
 /*
  * 枚举作用：
@@ -31,6 +37,90 @@ typedef enum e_gesture_runtime_mode
 static gesture_runtime_mode_t g_gesture_runtime_mode = GESTURE_RUNTIME_MODE_RECOGNIZE;
 
 /*
+ * 应用层持续派发策略说明：
+ * 1. 业务层在 100ms 分类周期里只负责产出“已经通过过滤的稳定命令”；
+ * 2. 应用层把这份稳定命令锁存成“当前激活命令”，而不是只发一次就清空；
+ * 3. 只要当前激活命令还有效，每个 200ms 发送窗口都会重复发它一次；
+ * 4. 这样可以把“分类偶发抖动”与“串口发送节拍”解耦，避免用户感受到一卡一卡的断续发送。
+ */
+#define HAL_ENTRY_RELEASE_CONFIRM_COUNT    2U
+
+static bool    g_hal_active_tx_valid          = false;
+static uint8_t g_hal_active_tx_cmd            = 0U;
+static uint8_t g_hal_release_confirm_count    = 0U;
+
+/*
+ * 内部函数作用：
+ *   清空应用层当前锁存的“持续派发命令”状态。
+ * 调用关系：
+ *   在模式切换、稳定回到无效手势、或其他需要彻底停发命令的场景下调用。
+ * 参数说明：
+ *   无。
+ * 返回值：
+ *   无。
+ */
+static void hal_entry_clear_active_tx_command (void)
+{
+    g_hal_active_tx_valid       = false;
+    g_hal_active_tx_cmd         = 0U;
+    g_hal_release_confirm_count = 0U;
+}
+
+/*
+ * 内部函数作用：
+ *   根据一次新的 100ms 分类结果，更新应用层当前的持续派发命令状态。
+ * 调用关系：
+ *   仅在识别模式下、且本轮确实执行过分类后调用。
+ * 参数说明：
+ *   p_result: 本轮分类和过滤结果。
+ * 返回值：
+ *   无。
+ * 处理策略说明：
+ *   1. 如果业务层给出了 send_ready=true 的稳定命令，就立刻切换当前激活命令；
+ *   2. 如果业务层还处于 send_hold=true 的确认阶段，就继续沿用旧命令，避免切换过程中断发；
+ *   3. 如果连续两次分类都回到了 0x02/0x00 这类“无须发送”的结果，才真正停发当前激活命令；
+ *   4. 这样既能保证同一方向命令持续以 200ms 频率重复发出，也能避免单次识别抖动造成的误停发。
+ */
+static void hal_entry_update_active_tx_command (gesture_service_result_t const * p_result)
+{
+    if ((NULL == p_result) || (!p_result->classify_ready))
+    {
+        return;
+    }
+
+    if (p_result->send_ready)
+    {
+        g_hal_active_tx_cmd         = p_result->send_cmd;
+        g_hal_active_tx_valid       = true;
+        g_hal_release_confirm_count = 0U;
+        return;
+    }
+
+    if (p_result->send_hold)
+    {
+        g_hal_release_confirm_count = 0U;
+        return;
+    }
+
+    if (p_result->suppress_common || (GESTURE_CMD_NONE == p_result->cmd))
+    {
+        if (g_hal_release_confirm_count < HAL_ENTRY_RELEASE_CONFIRM_COUNT)
+        {
+            g_hal_release_confirm_count++;
+        }
+
+        if (g_hal_release_confirm_count >= HAL_ENTRY_RELEASE_CONFIRM_COUNT)
+        {
+            hal_entry_clear_active_tx_command();
+        }
+
+        return;
+    }
+
+    g_hal_release_confirm_count = 0U;
+}
+
+/*
  * 内部函数作用：
  *   切换运行模式，并同步重置与模式相关的业务状态。
  * 调用关系：
@@ -41,12 +131,14 @@ static gesture_runtime_mode_t g_gesture_runtime_mode = GESTURE_RUNTIME_MODE_RECO
  *   无。
  * 处理内容：
  *   1. 清空识别业务层的样本缓存、历史命令和确认次数；
- *   2. 清空 200ms 调度节拍，避免旧模式遗留的节拍串入新模式；
- *   3. 根据模式更新 LED 状态，让现场调试时一眼可见当前模式。
+ *   2. 清空应用层当前激活命令，避免旧模式遗留的命令串入新模式；
+ *   3. 清空 100ms/200ms 调度节拍，避免旧模式遗留的节拍串入新模式；
+ *   4. 根据模式更新 LED 状态，让现场调试时一眼可见当前模式。
  */
 static void hal_entry_apply_runtime_mode (gesture_runtime_mode_t mode)
 {
     GestureService_Init();
+    hal_entry_clear_active_tx_command();
     MID_DispatchTimer_ClearDispatchFlags();
 
     g_gesture_runtime_mode = mode;
@@ -94,18 +186,22 @@ static void hal_entry_try_toggle_runtime_mode (void)
  * 裸机工程主入口。
  *
  * 主流程说明：
- * 1. 启动后先初始化 LED、UART、按键事件层和 200ms 调度定时器；
+ * 1. 启动后先初始化 LED、UART、按键事件层和 10ms 调度定时器；
  * 2. 默认进入识别模式；
  * 3. 主循环持续等待 uart2 收到一帧新的手套数据；
  * 4. 如果当前是采集模式，就把这帧转换成 CSV 文本发到 uart7；
- * 5. 如果当前是识别模式，就先做 100ms 采样，再在 200ms 周期到点时做一次 SVM 分类；
- * 6. 只有分类结果通过二次确认过滤后，才真正从 uart7 发出 1 字节命令。
+ * 5. 如果当前是识别模式，就先做 50ms 采样；
+ * 6. 当 100ms 分类窗口到点时，执行一次 SVM 分类并更新应用层当前的激活发送命令；
+ * 7. 当 200ms 发送窗口到点时，只要当前仍存在激活命令，就重复从 uart7 发出 1 字节命令；
+ * 8. 这样可以同时保证识别刷新更快、串口发送更平滑，不会出现用户感受到的“卡一下再发一下”。
  **********************************************************************************************************************/
 void hal_entry (void)
 {
     glove_frame_t            rx_frame;
     gesture_service_result_t gesture_result;
     fsp_err_t                err    = FSP_SUCCESS;
+    bool                     classify_due = false;
+    bool                     send_due     = false;
     uint8_t                  tx_cmd = 0U;
 
     /*
@@ -172,9 +268,10 @@ void hal_entry (void)
              * 1. 不做 SVM 分类；
              * 2. 不发送控制命令；
              * 3. 只把当前有效帧导出成 10 列 CSV；
-             * 4. 顺手消费掉调度标志，避免退出采集模式后突然补跑旧的 200ms 周期。
+             * 4. 顺手消费掉分类/发送标志，避免调试时把采集模式和识别模式的节拍状态混在一起。
              */
-            (void) MID_DispatchTimer_TryConsumeDispatchFlag();
+            (void) MID_DispatchTimer_TryConsumeClassifyFlag();
+            (void) MID_DispatchTimer_TryConsumeSendFlag();
 
             err = GestureCaptureService_ProcessFrame(MID_UART_PORT_7, &rx_frame);
             if (FSP_SUCCESS != err)
@@ -187,7 +284,7 @@ void hal_entry (void)
 
         /*
          * 识别模式逻辑的第一步：
-         * 把当前帧交给业务层，按 100ms 节拍决定是否更新“最新样本缓存”。
+         * 把当前帧交给业务层，按 50ms 节拍决定是否更新“最新样本缓存”。
          */
         err = GestureService_ProcessFrame(&rx_frame, &gesture_result);
         if (FSP_SUCCESS != err)
@@ -197,9 +294,11 @@ void hal_entry (void)
 
         /*
          * 识别模式逻辑的第二步：
-         * 只有当 200ms 调度标志到点，才允许真正执行一次分类周期。
+         * 只有当 100ms 分类标志到点，才允许真正执行一次新的分类周期。
+         * 这一步不会直接发串口，而是只负责更新应用层当前的“激活发送命令”状态。
          */
-        if (MID_DispatchTimer_TryConsumeDispatchFlag())
+        classify_due = MID_DispatchTimer_TryConsumeClassifyFlag();
+        if (classify_due)
         {
             err = GestureService_RunClassifyCycle(&gesture_result);
             if (FSP_SUCCESS != err)
@@ -207,19 +306,21 @@ void hal_entry (void)
                 continue;
             }
 
-            /*
-             * 识别模式逻辑的第三步：
-             * 只有当业务层确认 send_ready 为 true，才说明：
-             * 1. 本轮确实完成了一次新分类；
-             * 2. 结果不是被压制的 0x02/0x00；
-             * 3. 命令已经通过了二次确认过滤。
-             */
-            if (gesture_result.send_ready)
-            {
-                tx_cmd = gesture_result.send_cmd;
-                LED1_TOGGLE;
-                (void) MID_Uart_SendHex(MID_UART_PORT_7, &tx_cmd, 1U);
-            }
+            hal_entry_update_active_tx_command(&gesture_result);
+        }
+
+        /*
+         * 识别模式逻辑的第四步：
+         * 只有当 200ms 发送窗口到点，并且当前仍然存在激活命令时，
+         * 才真正从 uart7 发出 1 字节控制命令。
+         * 注意这里发完以后不会立刻清空命令，因为我们希望同一稳定方向能够持续重复发送。
+         */
+        send_due = MID_DispatchTimer_TryConsumeSendFlag();
+        if (send_due && g_hal_active_tx_valid)
+        {
+            tx_cmd = g_hal_active_tx_cmd;
+            LED1_TOGGLE;
+            (void) MID_Uart_SendHex(MID_UART_PORT_7, &tx_cmd, 1U);
         }
     }
 }

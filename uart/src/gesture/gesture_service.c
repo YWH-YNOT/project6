@@ -7,9 +7,9 @@
 
 /*
  * 内部上下文说明：
- * 1. sampled_* 保存最近一次被 100ms 采样节拍选中的特征；
+ * 1. sampled_* 保存最近一次被 50ms 采样节拍选中的特征；
  * 2. history_cmd 和 confirm_count 用来实现“同一命令连续出现两次才真正发送”的过滤逻辑；
- * 3. last_classified_sample_count 用于避免 200ms 周期重复消费同一份旧样本。
+ * 3. last_classified_sample_count 用于避免 100ms 分类周期重复消费同一份旧样本。
  */
 typedef struct st_gesture_service_context
 {
@@ -33,7 +33,7 @@ static gesture_service_context_t g_gesture_service_context;
  * 内部函数作用：
  *   判断 now 与 last 之间是否已经走过指定毫秒周期，自动兼容无符号毫秒计数回绕。
  * 调用关系：
- *   仅用于 100ms 采样节拍判断。
+ *   仅用于 50ms 采样节拍判断。
  * 参数说明：
  *   now: 当前时间戳。
  *   last: 上一次采样时间戳。
@@ -73,7 +73,7 @@ static void gesture_service_reset_result (gesture_service_result_t * p_result)
  * 内部函数作用：
  *   把当前协议帧复制进内部“最新样本缓存”。
  * 调用关系：
- *   当 100ms 采样条件满足时由 GestureService_ProcessFrame 调用。
+ *   当 50ms 采样条件满足时由 GestureService_ProcessFrame 调用。
  * 参数说明：
  *   p_frame: 当前被选中的协议帧。
  * 返回值：
@@ -107,6 +107,11 @@ static void gesture_service_copy_sample_from_frame (glove_frame_t const * p_fram
  */
 static void gesture_service_fill_result_from_sample (gesture_service_result_t * p_result)
 {
+    if ((NULL == p_result) || (!g_gesture_service_context.has_sample))
+    {
+        return;
+    }
+
     p_result->sample_seq     = g_gesture_service_context.sampled_seq;
     p_result->sample_status  = g_gesture_service_context.sampled_status;
     p_result->sample_tick_ms = g_gesture_service_context.sampled_tick_ms;
@@ -136,28 +141,63 @@ static void gesture_service_fill_result_from_sample (gesture_service_result_t * 
 static uint8_t gesture_service_map_command (uint8_t label)
 {
     /*
-     * 映射表沿用原 STM32 版本的 gr_cmd_map。
-     * 这样迁移到 RA6M5 后，对外发送的控制语义不发生变化。
+     * 映射关系沿用原 STM32 版本的 gr_cmd_map，并额外预留了 label=9 -> 0x19。
+     * 这样做的目的有两个：
+     * 1. 原有 0~8 标签的控制语义完全不变；
+     * 2. 当 tools 侧补齐 three(label=9) 数据并重新训练出 10 类模型后，
+     *    固件侧无需再改业务逻辑，就能把“手势三”按普通 SVM 手势走完整过滤链路。
      */
-    static const uint8_t g_cmd_map[GM_N_CLASSES] =
+    switch (label)
     {
-        GESTURE_CMD_COMMON, /* fist  */
-        GESTURE_CMD_COMMON, /* open  */
-        GESTURE_CMD_ONE,    /* one   */
-        GESTURE_CMD_COMMON, /* two   */
-        GESTURE_CMD_ROCK,   /* rock  */
-        GESTURE_CMD_UP,     /* up    */
-        GESTURE_CMD_DOWN,   /* down  */
-        GESTURE_CMD_LEFT,   /* left  */
-        GESTURE_CMD_RIGHT   /* right */
-    };
+        case 0U:
+        case 1U:
+        case 3U:
+        {
+            return GESTURE_CMD_COMMON;
+        }
 
-    if (label >= GM_N_CLASSES)
-    {
-        return GESTURE_CMD_NONE;
+        case 2U:
+        {
+            return GESTURE_CMD_ONE;
+        }
+
+        case 4U:
+        {
+            return GESTURE_CMD_ROCK;
+        }
+
+        case 5U:
+        {
+            return GESTURE_CMD_UP;
+        }
+
+        case 6U:
+        {
+            return GESTURE_CMD_DOWN;
+        }
+
+        case 7U:
+        {
+            return GESTURE_CMD_LEFT;
+        }
+
+        case 8U:
+        {
+            return GESTURE_CMD_RIGHT;
+        }
+
+#if GM_N_CLASSES > 9
+        case 9U:
+        {
+            return GESTURE_CMD_THREE;
+        }
+#endif
+
+        default:
+        {
+            return GESTURE_CMD_NONE;
+        }
     }
-
-    return g_cmd_map[label];
 }
 
 /*
@@ -172,7 +212,8 @@ static uint8_t gesture_service_map_command (uint8_t label)
  * 过滤逻辑说明：
  *   1. 如果命令是 0x02 或 0x00，直接压制，不对外发送；
  *   2. 如果命令与上一次候选命令相同，则确认次数加 1；
- *   3. 只有同一候选命令连续达到 2 次，才真正允许发送。
+ *   3. 只有同一候选命令连续达到 2 次，才真正允许进入“待发送”状态；
+ *   4. 真正的串口发送动作由应用层在独立的 200ms 发送窗口执行。
  */
 static void gesture_service_apply_send_filter (gesture_service_result_t * p_result)
 {
@@ -233,7 +274,7 @@ void GestureService_Init (void)
 
 /*
  * 函数作用：
- *   处理一帧新数据，并在满足 100ms 周期时刷新样本缓存。
+ *   处理一帧新数据，并在满足 50ms 周期时刷新样本缓存。
  * 参数说明：
  *   p_frame: 当前协议帧。
  *   p_result: 输出结果结构体。
@@ -277,14 +318,14 @@ fsp_err_t GestureService_ProcessFrame (glove_frame_t const * p_frame, gesture_se
 
 /*
  * 函数作用：
- *   在 200ms 调度周期到来时，使用当前最新样本执行一次 SVM 分类和命令过滤。
+ *   在 100ms 分类周期到来时，使用当前最新样本执行一次 SVM 分类和命令过滤。
  * 参数说明：
  *   p_result: 输出结果结构体。
  * 返回值：
  *   FSP_SUCCESS 表示本次周期已处理完成；
  *   FSP_ERR_ASSERTION 表示结果指针为空。
  * 调用方式：
- *   只有当 MID_DispatchTimer_TryConsumeDispatchFlag 返回 true 时，应用层才应该调用本函数。
+ *   只有当应用层确认到了新的 100ms 分类窗口时，才应该调用本函数。
  */
 fsp_err_t GestureService_RunClassifyCycle (gesture_service_result_t * p_result)
 {
@@ -302,27 +343,27 @@ fsp_err_t GestureService_RunClassifyCycle (gesture_service_result_t * p_result)
         return FSP_SUCCESS;
     }
 
+    gesture_service_fill_result_from_sample(p_result);
+
     /*
-     * 如果 200ms 周期先到了，但 100ms 没有选出新样本，就跳过本轮分类，
+     * 如果 100ms 分类周期先到了，但 50ms 没有选出新样本，就跳过本轮分类，
      * 避免同一份旧样本被反复重复分类。
      */
-    if (g_gesture_service_context.sample_count == g_gesture_service_context.last_classified_sample_count)
+    if (g_gesture_service_context.sample_count != g_gesture_service_context.last_classified_sample_count)
     {
-        return FSP_SUCCESS;
+        label = GestureModel_Classify(g_gesture_service_context.sampled_feature);
+
+        g_gesture_service_context.classify_count++;
+        g_gesture_service_context.last_classified_sample_count = g_gesture_service_context.sample_count;
+
+        p_result->classify_ready = true;
+        p_result->label          = label;
+        p_result->cmd            = gesture_service_map_command(label);
+
+        gesture_service_fill_result_from_sample(p_result);
+        p_result->classify_count = g_gesture_service_context.classify_count;
+        gesture_service_apply_send_filter(p_result);
     }
-
-    label = GestureModel_Classify(g_gesture_service_context.sampled_feature);
-
-    g_gesture_service_context.classify_count++;
-    g_gesture_service_context.last_classified_sample_count = g_gesture_service_context.sample_count;
-
-    p_result->classify_ready = true;
-    p_result->label          = label;
-    p_result->cmd            = gesture_service_map_command(label);
-
-    gesture_service_fill_result_from_sample(p_result);
-    p_result->classify_count = g_gesture_service_context.classify_count;
-    gesture_service_apply_send_filter(p_result);
 
     return FSP_SUCCESS;
 }
