@@ -1,26 +1,23 @@
 """
 train_svm.py
 ============
-读取 `collect_data.py` 采集得到的 CSV，训练线性 SVM，并导出 C 头文件。
+Train a linear SVM from `collect_data.py` CSV output and export C headers.
 
-当前工具链已经升级为 10 类标签：
-0~8 保持原有手势定义不变，`label=9` 对应 `three`。
-
-导出结果默认会同时写入：
-1. `uart/tools/generated/gesture_model.h`
-2. `uart/src/gesture/gesture_model.h`
-
-这样重新训练后不需要再手工复制模型头文件，重新编译工程即可生效。
+The script is designed to be resilient on Windows machines where the global
+Python or Conda environment may be polluted by incompatible binary packages.
+If `numpy` / `scikit-learn` cannot be imported cleanly, it will bootstrap and
+reuse a local `uart/tools/.venv-ml` virtual environment automatically.
 """
 
 from __future__ import annotations
 
 import argparse
+import csv
 import os
+import subprocess
 import sys
-from typing import Iterable
+from typing import TYPE_CHECKING, Iterable
 
-import numpy as np
 from tool_config import (
     DEFAULT_DATASET_PATH,
     DEFAULT_FIRMWARE_MODEL_PATH,
@@ -29,61 +26,194 @@ from tool_config import (
     GESTURE_LABELS,
 )
 
+if TYPE_CHECKING:
+    import numpy as np
+
 
 DEFAULT_DATA = DEFAULT_DATASET_PATH
 DEFAULT_OUT = DEFAULT_GENERATED_MODEL_PATH
 DEFAULT_FIRMWARE_OUT = DEFAULT_FIRMWARE_MODEL_PATH
 
-
-def ensure_dependencies() -> None:
-    """在真正训练前检查依赖，缺失时直接给出安装提示。"""
-    try:
-        import pandas  # noqa: F401
-        import sklearn  # noqa: F401
-    except ImportError as exc:
-        print("[错误] 缺少训练依赖，请先安装：")
-        print("  pip install numpy pandas scikit-learn")
-        raise SystemExit(1) from exc
+TOOLS_DIR = os.path.dirname(os.path.abspath(__file__))
+LOCAL_VENV_DIR = os.path.join(TOOLS_DIR, ".venv-ml")
+TRAIN_REQUIREMENTS = os.path.join(TOOLS_DIR, "requirements-train.txt")
+VENV_ACTIVE_ENV = "UART_TOOLS_VENV_ACTIVE"
 
 
-def load_dataset(csv_path: str) -> tuple[np.ndarray, np.ndarray]:
+def get_venv_python(venv_dir: str) -> str:
+    """Return the Python executable inside the local training virtualenv."""
+    if os.name == "nt":
+        return os.path.join(venv_dir, "Scripts", "python.exe")
+    return os.path.join(venv_dir, "bin", "python")
+
+
+def probe_training_dependencies(python_executable: str) -> tuple[bool, str]:
+    """Check whether numpy and scikit-learn import cleanly in a given Python."""
+    result = subprocess.run(
+        [python_executable, "-c", "import numpy, sklearn"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    if result.returncode == 0:
+        return True, ""
+
+    detail = (result.stderr or result.stdout or "").strip()
+    if detail:
+        lines = [line.strip() for line in detail.splitlines() if line.strip()]
+        return False, lines[-1]
+    return False, f"dependency probe exited with code {result.returncode}"
+
+
+def install_training_dependencies(venv_python: str) -> None:
+    """Install the pinned training dependencies into the local virtualenv."""
+    if not os.path.exists(TRAIN_REQUIREMENTS):
+        print(f"[错误] 找不到训练依赖文件: {TRAIN_REQUIREMENTS}")
+        raise SystemExit(1)
+
+    print("[环境] 正在安装训练依赖，请稍候 ...", flush=True)
+    subprocess.check_call(
+        [
+            venv_python,
+            "-m",
+            "pip",
+            "install",
+            "--disable-pip-version-check",
+            "-r",
+            TRAIN_REQUIREMENTS,
+        ]
+    )
+
+
+def ensure_training_runtime() -> None:
     """
-    读取数据集并做基础校验：
-    1. 支持带表头或不带表头的 CSV；
-    2. 要求标签必须完整覆盖 0~9；
-    3. 旧的 0~8 类历史数据会原样保留，只需要额外补齐 label=9 的 three 数据。
-    """
-    import pandas as pd
+    Ensure the current process has a usable training runtime.
 
+    If the active interpreter is broken, create / repair `uart/tools/.venv-ml`
+    and re-run the script inside that environment.
+    """
+    ok, reason = probe_training_dependencies(sys.executable)
+    if ok:
+        return
+
+    venv_python = get_venv_python(LOCAL_VENV_DIR)
+    already_reexecuted = os.environ.get(VENV_ACTIVE_ENV) == "1"
+
+    if already_reexecuted:
+        print("[错误] 本地训练环境中的依赖仍不可用。", flush=True)
+        print(f"       当前解释器: {sys.executable}", flush=True)
+        print(f"       失败原因: {reason}", flush=True)
+        print(f"       可尝试删除后重建目录: {LOCAL_VENV_DIR}", flush=True)
+        raise SystemExit(1)
+
+    if not os.path.exists(venv_python):
+        print("[环境] 检测到当前 Python 训练依赖不可用。", flush=True)
+        print(f"       当前解释器: {sys.executable}", flush=True)
+        print(f"       失败原因: {reason}", flush=True)
+        print(f"[环境] 正在创建独立训练环境: {LOCAL_VENV_DIR}", flush=True)
+        subprocess.check_call([sys.executable, "-m", "venv", LOCAL_VENV_DIR])
+    else:
+        print("[环境] 当前 Python 训练依赖不可用，将切换到本地训练环境。", flush=True)
+        print(f"       当前解释器: {sys.executable}", flush=True)
+        print(f"       失败原因: {reason}", flush=True)
+
+    venv_ok, _ = probe_training_dependencies(venv_python)
+    if not venv_ok:
+        install_training_dependencies(venv_python)
+        venv_ok, venv_reason = probe_training_dependencies(venv_python)
+        if not venv_ok:
+            print("[错误] 本地训练环境创建完成，但依赖仍无法导入。", flush=True)
+            print(f"       解释器: {venv_python}", flush=True)
+            print(f"       失败原因: {venv_reason}", flush=True)
+            raise SystemExit(1)
+
+    print(f"[环境] 使用本地训练解释器: {venv_python}", flush=True)
+    env = os.environ.copy()
+    env[VENV_ACTIVE_ENV] = "1"
+    completed = subprocess.run([venv_python, os.path.abspath(__file__), *sys.argv[1:]], env=env, check=False)
+    raise SystemExit(completed.returncode)
+
+
+def load_dataset(csv_path: str) -> tuple["np.ndarray", "np.ndarray"]:
+    """
+    Load the dataset CSV and validate that labels cover the full 0~9 range.
+
+    The loader supports both CSV files with a header row and legacy files
+    without headers.
+    """
     if not os.path.exists(csv_path):
         print(f"[错误] 找不到数据文件: {csv_path}")
-        sys.exit(1)
+        raise SystemExit(1)
 
-    df = pd.read_csv(csv_path)
+    with open(csv_path, "r", encoding="utf-8-sig", newline="") as csv_file:
+        rows = list(csv.reader(csv_file))
 
-    if not set(FEATURE_NAMES + ["label"]).issubset(df.columns):
-        df = pd.read_csv(csv_path, header=None)
-        if len(df.columns) != len(FEATURE_NAMES) + 1:
-            print("[错误] CSV 列数不正确。")
-            print(f"       期望 {len(FEATURE_NAMES) + 1} 列: 10 个特征 + 1 个 label")
-            sys.exit(1)
-        df.columns = FEATURE_NAMES + ["label"]
-
-    df = df.dropna(subset=FEATURE_NAMES + ["label"])
-    if df.empty:
+    if not rows:
         print("[错误] 数据文件为空，无法训练。")
-        sys.exit(1)
+        raise SystemExit(1)
 
-    X = df[FEATURE_NAMES].astype(np.float32).to_numpy()
-    y = df["label"].astype(int).to_numpy()
+    expected_columns = FEATURE_NAMES + ["label"]
+    first_row = [cell.strip() for cell in rows[0]]
+    has_header = set(expected_columns).issubset(first_row)
+
+    if has_header:
+        try:
+            column_indexes = [first_row.index(name) for name in expected_columns]
+        except ValueError:
+            print("[错误] CSV 表头缺少必要字段。")
+            raise SystemExit(1)
+        data_rows = rows[1:]
+        data_row_start = 2
+    else:
+        if len(first_row) != len(expected_columns):
+            print("[错误] CSV 列数不正确。")
+            print(f"       期望 {len(expected_columns)} 列: 10 个特征 + 1 个 label")
+            raise SystemExit(1)
+        column_indexes = list(range(len(expected_columns)))
+        data_rows = rows
+        data_row_start = 1
+
+    feature_rows: list[list[float]] = []
+    labels: list[int] = []
+
+    for row_number, row in enumerate(data_rows, start=data_row_start):
+        if not row or all(not cell.strip() for cell in row):
+            continue
+
+        if max(column_indexes) >= len(row):
+            print(f"[错误] CSV 第 {row_number} 行列数不足。")
+            raise SystemExit(1)
+
+        selected = [row[index].strip() for index in column_indexes]
+        if any(value == "" for value in selected):
+            continue
+
+        try:
+            features = [float(value) for value in selected[:-1]]
+            label = int(selected[-1])
+        except ValueError:
+            print(f"[错误] CSV 第 {row_number} 行存在无法解析的数值。")
+            raise SystemExit(1)
+
+        feature_rows.append(features)
+        labels.append(label)
+
+    if not feature_rows:
+        print("[错误] 数据文件中没有可用样本，无法训练。")
+        raise SystemExit(1)
+
+    X = np.asarray(feature_rows, dtype=np.float32)
+    y = np.asarray(labels, dtype=np.int32)
 
     expected_labels = list(GESTURE_LABELS.keys())
     actual_labels = sorted(set(y.tolist()))
     if actual_labels != expected_labels:
-        print("[错误] 当前工程的命令映射已经升级为 10 类标签 0~9。")
+        print("[错误] 当前工程要求 10 类完整标签 0~9。")
         print(f"       实际检测到的标签: {actual_labels}")
-        print("       旧数据会继续保留，请在同一份 CSV 中补齐 three(label=9) 后再训练。")
-        sys.exit(1)
+        print("       请确认 CSV 中已经补齐 three(label=9) 等缺失类别后再训练。")
+        raise SystemExit(1)
 
     print(f"[数据] 共 {len(X)} 帧，特征维度 {len(FEATURE_NAMES)}。")
     for label in expected_labels:
@@ -93,18 +223,18 @@ def load_dataset(csv_path: str) -> tuple[np.ndarray, np.ndarray]:
     return X, y
 
 
-def choose_n_splits(y: np.ndarray) -> int:
-    """根据最少类别样本数自动选择可用的交叉验证折数。"""
+def choose_n_splits(y: "np.ndarray") -> int:
+    """Pick a valid cross-validation split count from the smallest class size."""
     counts = [int((y == label).sum()) for label in GESTURE_LABELS]
     min_count = min(counts)
     if min_count < 2:
-        print("[错误] 每一类至少需要 2 帧数据，当前最少类别不足。")
-        sys.exit(1)
+        print("[错误] 每一类至少需要 2 帧数据，当前最小类别不足。")
+        raise SystemExit(1)
     return min(5, min_count)
 
 
-def train_model(X: np.ndarray, y: np.ndarray):
-    """完成标准化、线性 SVM 训练和交叉验证评估。"""
+def train_model(X: "np.ndarray", y: "np.ndarray"):
+    """Train a linear SVM with standardization and print CV accuracy."""
     from sklearn.model_selection import StratifiedKFold, cross_val_score
     from sklearn.pipeline import Pipeline
     from sklearn.preprocessing import StandardScaler
@@ -134,14 +264,14 @@ def train_model(X: np.ndarray, y: np.ndarray):
 
 
 def format_c_1d(values: Iterable[float], name: str) -> str:
-    """把一维浮点数组转成 C 头文件里的静态常量定义。"""
+    """Format a 1D float array as a C static constant definition."""
     values_list = list(values)
     content = ", ".join(f"{value:.6f}f" for value in values_list)
     return f"static const float {name}[{len(values_list)}] = {{{content}}};"
 
 
-def format_c_2d(values: np.ndarray, name: str) -> str:
-    """把二维浮点数组转成 C 头文件里的静态常量定义。"""
+def format_c_2d(values: "np.ndarray", name: str) -> str:
+    """Format a 2D float array as a C static constant definition."""
     rows = []
     for row in values:
         rows.append("    {" + ", ".join(f"{value:.6f}f" for value in row) + "}")
@@ -155,7 +285,7 @@ def format_c_2d(values: np.ndarray, name: str) -> str:
 
 
 def write_header_file(output_path: str, header_text: str) -> None:
-    """把生成好的模型头文件文本写到指定路径。"""
+    """Write the generated model header text to disk."""
     output_dir = os.path.dirname(output_path)
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
@@ -173,12 +303,7 @@ def export_header(
     firmware_output_path: str | None,
     accuracy: float,
 ) -> None:
-    """
-    导出 C 权重文件。
-    训练完成后会同时更新：
-    1. `uart/tools/generated/gesture_model.h`，方便留档和比对；
-    2. `uart/src/gesture/gesture_model.h`，保证固件编译时真正拿到最新模型。
-    """
+    """Export the StandardScaler + LinearSVC weights to C header files."""
     mean_ = scaler.mean_.astype(np.float32)
     scale_ = scaler.scale_.astype(np.float32)
     coef_ = svm.coef_.astype(np.float32)
@@ -188,9 +313,8 @@ def export_header(
         "/**",
         " * gesture_model.h",
         " * ------------------------------------------------------------",
-        " * 由 uart/tools/train_svm.py 自动生成。",
-        " * 重新训练后，脚本会同步覆盖 tools/generated 和 src/gesture 两份模型头文件。",
-        f" * 交叉验证平均准确率: {accuracy * 100:.2f}%",
+        " * Auto-generated by uart/tools/train_svm.py",
+        f" * Mean cross-validation accuracy: {accuracy * 100:.2f}%",
         " */",
         "#ifndef GESTURE_MODEL_H",
         "#define GESTURE_MODEL_H",
@@ -202,15 +326,15 @@ def export_header(
         f"#define GM_N_CLASSES {len(GESTURE_LABELS)}",
         "#define GM_INVALID_LABEL 0xFFU",
         "",
-        "/* StandardScaler 参数 */",
+        "/* StandardScaler parameters */",
         format_c_1d(mean_.tolist(), "gm_mean"),
         format_c_1d(scale_.tolist(), "gm_scale"),
         "",
-        "/* LinearSVC 权重与偏置 */",
+        "/* LinearSVC weights and bias */",
         format_c_2d(coef_, "gm_W"),
         format_c_1d(bias_.tolist(), "gm_b"),
         "",
-        "/* 标签名称，方便调试打印 */",
+        "/* Label names for debugging */",
         "static const char * const gm_labels[GM_N_CLASSES] =",
         "{",
     ]
@@ -285,8 +409,8 @@ def export_header(
 
 
 def parse_args() -> argparse.Namespace:
-    """解析命令行参数。"""
-    parser = argparse.ArgumentParser(description="训练线性 SVM 并导出 C 权重文件")
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(description="训练线性 SVM 并导出 C 权重头文件")
     parser.add_argument("--data", default=DEFAULT_DATA, help="输入 CSV 文件路径")
     parser.add_argument("--out", default=DEFAULT_OUT, help="输出头文件路径")
     parser.add_argument(
@@ -298,10 +422,14 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    """训练工具主流程。"""
+    """Main entry point."""
+    ensure_training_runtime()
+
+    global np
+    import numpy as np
+
     args = parse_args()
     firmware_out = args.firmware_out.strip()
-    ensure_dependencies()
 
     X, y = load_dataset(args.data)
     scaler, svm, accuracy = train_model(X, y)
