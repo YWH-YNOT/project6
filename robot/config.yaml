@@ -1,0 +1,64 @@
+# 手套串口：改成你当前连接手套/RA 下位机输出命令字节的串口
+serial:
+  port: "COM6"
+  baudrate: 115200
+  timeout_s: 0.10
+  flush_input_on_start: true
+
+# Dobot 连接与运动参数
+dobot:
+  # 为空时走官方 API 的自动搜索连接；若现场有多个设备，建议明确写成实际 COM 口
+  port: ""
+  baudrate: 115200
+  sdk_dir: "third_party/dobot_magician_py64"
+  startup_confirmation: true
+  startup_message: "启动前请确认：1) 机械臂已固定；2) 工作区无遮挡；3) 机械臂不在极限位；4) 人手已离开运动范围。"
+  auto_move_to_safe_pose_on_start: true
+  queue_poll_interval_s: 0.05
+  queue_wait_timeout_s: 20.0
+  motion:
+    # V1 默认使用 MOVJXYZ，优先保证可达性与稳定性；若后续需要严格直线，再改成 MOVLXYZ
+    ptp_mode: "MOVJXYZ"
+    joint_velocity: [200, 200, 200, 200]
+    joint_acceleration: [200, 200, 200, 200]
+    coordinate_xyz_velocity: 200
+    coordinate_xyz_acceleration: 200
+    coordinate_r_velocity: 200
+    coordinate_r_acceleration: 200
+    common_velocity_ratio: 40
+    common_acceleration_ratio: 40
+
+# 手套原始命令 -> Dobot 单步控制
+control:
+  step_x_mm: 10.0
+  step_y_mm: 10.0
+  step_z_mm: 10.0
+  min_command_interval_s: 0.35
+  duplicate_debounce_s: 0.08
+  flush_serial_after_motion: true
+  # 可选：placeholder / gripper
+  # 当前未知现场是否已装夹爪，默认先做日志占位
+  special_action_mode: "placeholder"
+
+# 软限位与安全位
+safety:
+  # 这是一个偏保守的默认安全位，基于本地 demo 示例点位做了收敛。
+  # 第一次上机前请务必按你的机械臂安装姿态和末端工具再核对一遍。
+  safe_pose:
+    x: 200.0
+    y: 0.0
+    z: 50.0
+    r: 0.0
+  soft_limits:
+    x:
+      min: 160.0
+      max: 280.0
+    y:
+      min: -120.0
+      max: 120.0
+    z:
+      min: 0.0
+      max: 140.0
+
+# 日志目录，程序会自动创建
+log_dir: "logs"
